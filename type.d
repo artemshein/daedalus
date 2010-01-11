@@ -1,6 +1,6 @@
 module type;
 
-auto constCast (string var)
+string constCast (string var)
 {
 	return "cast(const(typeof(" ~ var ~ ")))(" ~ var ~ ")";
 }

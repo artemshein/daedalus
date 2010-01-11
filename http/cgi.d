@@ -1,14 +1,14 @@
 module http.cgi;
 
-import std.stdio : write, writeln, writef, writefln;
+import std.stdio : write, writeln, writef, writefln, stdin;
+import std.algorithm : startsWith;
+import std.conv : to;
 import http.wsapi : WsApi;
 import func : passArguments;
 
 class Cgi: WsApi
 {
 	protected:
-		bool headersSent = false;
-		string tmpDir;
 		auto parseCookies ()
 		{
 		}
@@ -26,7 +26,7 @@ class Cgi: WsApi
 					auto eqPos = indexOf(expr, "=");
 					if (-1 != eqPos)
 					{
-						auto key, value = expr[0..eqPos], urlDecode(expr[eqPos+1..$]);
+						auto key = expr[0..eqPos], value = urlDecode(expr[eqPos+1..$]);
 						if (!key.empty)
 							_getData[key] = value;
 					}
@@ -34,37 +34,59 @@ class Cgi: WsApi
 			}
 			return this;
 		}
-		void parsePostData ()
+		auto parsePostData ()
 		{
 			if ("POST" != requestHeader("REQUEST_METHOD"))
-				return;
-		end
-		local contentType = self:requestHeader"CONTENT_TYPE"
-		if contentType:beginsWith"application/x-www-form-urlencoded" then
-			local data = io.read(tonumber(self:requestHeader"CONTENT_LENGTH"))
-			if data then
-				data = data:explode"&"
-				for _, v in ipairs(data) do
-					local key, val = v:split"="
-					val = urlDecode(val)
-					if not self._post[key] then
-						self._post[key] = val
-					else
-						if "table" == type(self._post[key]) then
-							table.insert(self._post[key], val)
+				return this;
+			auto contentType = requestHeader("CONTENT_TYPE");
+			if (startsWith(contentType, "application/x-www-form-urlencoded"))
+			{
+				string data;
+				data.length = to!(uint)(requestHeader("CONTENT_LENGTH"));
+				stdin.rawRead(data);
+				auto exprs = split(data, "&");
+				foreach (expr; exprs)
+				{
+					auto ePos = indexOf(expr, "=");
+					if (-1 != ePos)
+					{
+						auto key = expr[0..ePos], value = urlDecode(expr[ePos+1..$]);
+						if (key in _postData)
+						{
+							auto v = _postData[key];
+							if (v.type == typeid(string[]))
+							{
+								v.length + 1;
+								v[$-1] = value;
+							}
+							else
+								_postData[key] = [v, value][];
+						}
 						else
-							self._post[key] = {self._post[key];val}
-						end
-					end
-				end
-			end
-		elseif contentType:beginsWith"multipart/form-data" then
-			local _, boundaryStr = contentType:split";"
-			local _, boundary = boundaryStr:split"="
-			self:parseMultipartFormData("--"..boundary, io.read "*a")
-		else
-			Exception("not implemented for content-type: "..contentType)
-		end
+							_postData[key] = value;
+					}
+				}
+			}
+			else if (startsWith(contentType, "multipart/form-data"))
+			{
+				auto dcPos = indexOf(contentType, ";");
+				if (-1 != dcPos)
+				{
+					auto boundaryStr = contentType[dcPos+1..$];
+					auto eqPos = indexOf(boundaryStr, "=");
+					if (-1 != eqPos)
+					{
+						auto boundary = boundaryStr[eqPos+1..$];
+						ubyte[] inBuf;
+						foreach (buf; stdin.byChunk(4096))
+							inBuf ~= buf;
+						parseMultipartFormData("--" ~ boundary, inBuf);
+					}
+				}
+			}
+			else
+				throw new Exception("not implemented for content-type: " ~ contentType);
+			return this;
 		}
 	public:
 		WsApi write (...)
@@ -93,9 +115,7 @@ class Cgi: WsApi
 		}
 		this (string tmpDir)
 		{
-			this.tmpDir = tmpDir;
-			parseCookies;
-			parseGetData;
-			parsePostData;
+			super(tmpDir);
+			parseCookies.parseGetData.parsePostData;
 		}
 }
