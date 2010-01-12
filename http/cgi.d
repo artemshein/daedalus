@@ -2,7 +2,9 @@ module http.cgi;
 
 import std.stdio : write, writeln, writef, writefln, stdin;
 import std.algorithm : startsWith;
+import std.string : indexOf, split, strip;
 import std.conv : to;
+import std.uri : decode;
 import http.wsapi : WsApi;
 import func : passArguments;
 
@@ -11,10 +13,14 @@ class Cgi: WsApi
 	protected:
 		auto parseCookies ()
 		{
+			return this;
 		}
 		auto parseGetData ()
 		{
-			auto data = requestHeader("REQUEST_URI");
+			auto reqUri = requestHeader("REQUEST_URI");
+			if (reqUri is null)
+				return this;
+			auto data = *reqUri;
 			auto pos = indexOf(data, "?");
 			if (-1 != pos)
 				data = data[pos+1..$];
@@ -26,8 +32,8 @@ class Cgi: WsApi
 					auto eqPos = indexOf(expr, "=");
 					if (-1 != eqPos)
 					{
-						auto key = expr[0..eqPos], value = urlDecode(expr[eqPos+1..$]);
-						if (!key.empty)
+						auto key = expr[0..eqPos], value = decode(expr[eqPos+1..$]);
+						if (key.length)
 							_getData[key] = value;
 					}
 				}
@@ -36,13 +42,20 @@ class Cgi: WsApi
 		}
 		auto parsePostData ()
 		{
-			if ("POST" != requestHeader("REQUEST_METHOD"))
+			auto reqMeth = requestHeader("REQUEST_METHOD");
+			if (reqMeth is null || "POST" != *reqMeth)
 				return this;
-			auto contentType = requestHeader("CONTENT_TYPE");
+			auto contType = requestHeader("CONTENT_TYPE");
+			if (contType is null)
+				throw new Exception("CONTENT_TYPE required");
+			auto contentType = *contType;
 			if (startsWith(contentType, "application/x-www-form-urlencoded"))
 			{
-				string data;
-				data.length = to!(uint)(requestHeader("CONTENT_LENGTH"));
+				char[] data;
+				auto contLen = requestHeader("CONTENT_LENGTH");
+				if (contLen is null)
+					throw new Exception("CONTENT_LENGTH required");
+				data.length = to!(uint)(*contLen);
 				stdin.rawRead(data);
 				auto exprs = split(data, "&");
 				foreach (expr; exprs)
@@ -50,17 +63,18 @@ class Cgi: WsApi
 					auto ePos = indexOf(expr, "=");
 					if (-1 != ePos)
 					{
-						auto key = expr[0..ePos], value = urlDecode(expr[ePos+1..$]);
+						auto key = expr[0..ePos], value = decode(expr[ePos+1..$].idup);
 						if (key in _postData)
 						{
 							auto v = _postData[key];
 							if (v.type == typeid(string[]))
 							{
-								v.length + 1;
-								v[$-1] = value;
+								auto val = *v.peek!(string[]);
+								val.length += 1;
+								val[$-1] = value;
 							}
 							else
-								_postData[key] = [v, value][];
+								_postData[key] = [*v.peek!(string), value][];
 						}
 						else
 							_postData[key] = value;
@@ -78,9 +92,9 @@ class Cgi: WsApi
 					{
 						auto boundary = boundaryStr[eqPos+1..$];
 						ubyte[] inBuf;
-						foreach (buf; stdin.byChunk(4096))
+						foreach (ubyte[] buf; stdin.byChunk(4096))
 							inBuf ~= buf;
-						parseMultipartFormData("--" ~ boundary, inBuf);
+						parseMultipartFormData("--" ~ boundary, cast(string)inBuf);
 					}
 				}
 			}
@@ -111,7 +125,8 @@ class Cgi: WsApi
 		}
 		WsApi sendHeaders ()
 		{
-			headersSent = true;
+			WsApi.sendHeaders();
+			return this;
 		}
 		this (string tmpDir)
 		{
