@@ -1,12 +1,20 @@
 module http.wsapi; 
 
-import std.string : split, indexOf, tolower, strip;
+import std.string : split, indexOf, tolower, strip, format;
 import std.regex : Regex, match;
+import std.conv : to;
 import std.variant : Variant;
 import std.md5 : getDigestString;
 import std.random : uniform;
 import std.algorithm : startsWith;
+import std.uri : decode;
 import type : constCast;
+import std.stdarg;
+
+string castToTypeAndConcat (string type)
+{
+	return " if (typeid(" ~ type ~ ") == arg) dataToSend ~= to!(string)(va_arg!(" ~ type ~ ")(_argptr)); ";
+}
 
 abstract class WsApi
 {
@@ -16,6 +24,7 @@ abstract class WsApi
 		Variant[string] _postData;
 		string tmpDir;
 		static string[uint] responseCodesStrings;
+		string dataToSend;
 		@property
 		{
 			auto getData (map getData)
@@ -111,6 +120,89 @@ abstract class WsApi
 			}
 			return this;
 		}
+		WsApi parseRequestHeaders (string[] headers)
+		{
+			foreach (header; headers)
+			{
+				auto colsPos = indexOf(header, ":");
+				if (-1 != colsPos)
+					requestHeader(strip(header[0 .. colsPos]), strip(header[colsPos .. $]));
+			}
+			return this;
+		}
+		WsApi parseGetParams (string params)
+		{
+			foreach (param; params.split("&"))
+			{
+				auto eqPos = param.indexOf("=");
+				if (-1 != eqPos)
+					get(strip(param[0 .. eqPos]), decode(strip(param[eqPos + 1 .. $])));
+			}
+			return this;
+		}
+		auto appendPostValue (string key, string value)
+		{
+			auto leftBrPos = key.indexOf("["), rightBrPos = key.indexOf("]");
+			if (-1 != leftBrPos && -1 != rightBrPos && rightBrPos > leftBrPos)
+			{	// string[string]
+				auto el = post(key[0 .. leftBrPos]);
+				if (el is null)
+				{
+					string[string] v;
+					v[key[leftBrPos + 1 .. rightBrPos]] = decode(value);
+					post(key[0 .. leftBrPos], Variant(v));
+				}
+				else if (typeid(string[string]) == el.type)
+					(*el.peek!(string[string]))[key[leftBrPos + 1 .. rightBrPos]] = decode(value);
+				else
+					return false;
+			}
+			else
+			{	// string or string[]
+				auto el = post(key);
+				if (el is null)
+					// string
+					post(key, Variant(decode(value)));
+				else if (typeid(string) == el.type)
+				{
+					string[] v;
+					v.length = 2;
+					v[0] = *el.peek!(string);
+					v[1] = decode(value);
+					post(key, Variant(v));
+				}
+				else if (typeid(string[]) == el.type)
+				{
+					auto s = *el.peek!(string[]);
+					s.length += 1;
+					s[$-1] = decode(value);
+				}
+				else
+					return false;
+			}
+			return true;
+		}
+		WsApi parsePostData (string data)
+		{
+			auto contentType = *requestHeader("Content-Type");
+			if (contentType.startsWith("application/x-www-form-urlencoded"))
+			{
+				foreach (param; data.split("&"))
+				{
+					auto eqPos = param.indexOf("=");
+					if (-1 != eqPos)
+						appendPostValue(param[0 .. eqPos], param[eqPos + 1 .. $]);
+				}
+			}
+			else if (contentType.startsWith("multipart/form-data"))
+			{
+				auto boundary = contentType.split(";")[1].split("=")[1];
+				parseMultipartFormData("--" ~ boundary, data);
+			}
+			else
+				throw new Exception("not implemented for content-type: " ~ contentType);
+			return this;
+		}
 	public:
 		ushort responseCode;
 		bool headersSent;
@@ -122,8 +214,13 @@ abstract class WsApi
 			auto responseHeaders () { return mixin(constCast(_responseHeaders.stringof)); }
 			auto cookies () { return mixin(constCast(_cookies.stringof)); }
 		}
-		auto post (string key) { return key in postData; }
-		auto get (string key) { return key in getData; }
+		Variant* post (string key) { return key in postData; }
+		string* get (string key) { return key in getData; }
+		WsApi requestHeader (string key, string val)
+		{
+			_requestHeaders[key] = val;
+			return this;
+		}
 		string* requestHeader (string key) { return key in requestHeaders; }
 		auto cookie (string key) { return key in cookies; }
 		auto cookie (string key, string value)
@@ -166,11 +263,106 @@ abstract class WsApi
 				510: "Not Extended"
 			];
 		}
-		WsApi sendHeaders () { headersSent = true; return this; }
-		abstract WsApi write(...);
-		abstract WsApi writef(...);
-		abstract WsApi writeln(...);
-		abstract WsApi writefln(...);
+		WsApi sendHeaders ()
+		{
+			headersSent = true;
+			return this;
+		}
+		WsApi flush ()
+		{
+			if (!headersSent)
+				sendHeaders;
+			return this;
+		}
+		WsApi write (...)
+		{
+			foreach (arg; _arguments)
+				mixin(castToTypeAndConcat("string")
+				~ "else" ~ castToTypeAndConcat("byte")
+				~ "else" ~ castToTypeAndConcat("ubyte")
+				~ "else" ~ castToTypeAndConcat("short")
+				~ "else" ~ castToTypeAndConcat("ushort")
+				~ "else" ~ castToTypeAndConcat("int")
+				~ "else" ~ castToTypeAndConcat("uint")
+				~ "else" ~ castToTypeAndConcat("long")
+				~ "else" ~ castToTypeAndConcat("ulong")
+				~ "else" ~ castToTypeAndConcat("float")
+				~ "else" ~ castToTypeAndConcat("double")
+				~ "else throw new Exception(\"not implemented\");");
+			return this;
+		}
+		WsApi writef (...)
+		{
+			switch (_arguments.length)
+			{
+				case 0:
+					return write;
+				case 1:
+					return write(format(_arguments[0]));
+				case 2:
+					return write(format(_arguments[0], _arguments[1]));
+				case 3:
+					return write(format(_arguments[0], _arguments[1], _arguments[2]));
+				case 4:
+					return write(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3]));
+				case 5:
+					return write(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4]));
+				case 6:
+					return write(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5]));
+				case 7:
+					return write(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5], _arguments[6]));
+				case 8:
+					return write(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5], _arguments[6], _arguments[7]));
+				default:
+					throw new Exception("not implemented");
+			}
+			return this;
+		}
+		WsApi writeln (...)
+		{
+			foreach (arg; _arguments)
+				mixin(castToTypeAndConcat("string")
+				~ "else" ~ castToTypeAndConcat("byte")
+				~ "else" ~ castToTypeAndConcat("ubyte")
+				~ "else" ~ castToTypeAndConcat("short")
+				~ "else" ~ castToTypeAndConcat("ushort")
+				~ "else" ~ castToTypeAndConcat("int")
+				~ "else" ~ castToTypeAndConcat("uint")
+				~ "else" ~ castToTypeAndConcat("long")
+				~ "else" ~ castToTypeAndConcat("ulong")
+				~ "else" ~ castToTypeAndConcat("float")
+				~ "else" ~ castToTypeAndConcat("double")
+				~ "else throw new Exception(\"not implemented\");");
+			dataToSend ~= "\r\n";
+			return this;
+		}
+		WsApi writefln (...)
+		{
+			switch (_arguments.length)
+			{
+				case 0:
+					return writeln;
+				case 1:
+					return writeln(format(_arguments[0]));
+				case 2:
+					return writeln(format(_arguments[0], _arguments[1]));
+				case 3:
+					return writeln(format(_arguments[0], _arguments[1], _arguments[2]));
+				case 4:
+					return writeln(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3]));
+				case 5:
+					return writeln(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4]));
+				case 6:
+					return writeln(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5]));
+				case 7:
+					return writeln(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5], _arguments[6]));
+				case 8:
+					return writeln(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5], _arguments[6], _arguments[7]));
+				default:
+					throw new Exception("not implemented");
+			}
+			return this;
+		}
 }
 
 class HttpRequest
@@ -233,6 +425,26 @@ class Route
 		{
 			this.regex = regex;
 			this.handler = handler;
+		}
+		this (string str, Variant handler)
+		{
+			this(new Regex!(char)(str), handler);
+		}
+		this (Regex!(char) regex, void function (UrlConf) handler)
+		{
+			this(regex, Variant(handler));
+		}
+		this (string str, void function (UrlConf) handler)
+		{
+			this(new Regex!(char)(str), Variant(handler));
+		}
+		this (Regex!(char) regex, void delegate (UrlConf) handler)
+		{
+			this(regex, Variant(handler));
+		}
+		this (string str, void delegate (UrlConf) handler)
+		{
+			this(new Regex!(char)(str), Variant(handler));
 		}
 }
 
