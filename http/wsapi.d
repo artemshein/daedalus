@@ -423,12 +423,12 @@ class Route
 		Variant handler;
 		this (Regex!(char) regex, Variant handler)
 		{
-			this.regex = regex;
+			this.regex = handler;
 			this.handler = handler;
 		}
 		this (string str, Variant handler)
 		{
-			this(new Regex!(char)(str), handler);
+			this(regex(str), handler);
 		}
 		this (Regex!(char) regex, void function (UrlConf) handler)
 		{
@@ -436,7 +436,7 @@ class Route
 		}
 		this (string str, void function (UrlConf) handler)
 		{
-			this(new Regex!(char)(str), Variant(handler));
+			this(regex(str), Variant(handler));
 		}
 		this (Regex!(char) regex, void delegate (UrlConf) handler)
 		{
@@ -444,17 +444,24 @@ class Route
 		}
 		this (string str, void delegate (UrlConf) handler)
 		{
-			this(new Regex!(char)(str), Variant(handler));
+			this(regex(str), Variant(handler));
 		}
+}
+
+Route route (R, H) (R regex, H handler)
+{
+	return new Route(regex, handler);
 }
 
 class UrlConf
 {
+	private:
 	public:
 		HttpRequest request;
 		string urlPrefix, uri, tailUri, baseUri;
 		string[] captures;
 		Variant[string] environment;
+		Route[] routes;
 		this (HttpRequest request, string urlPrefix)
 		{
 			this.request = request;
@@ -481,7 +488,13 @@ class UrlConf
 		{
 			this(request, "");
 		}
-		auto dispatch (Route[] routes)
+		UrlConf bind (Route route)
+		{
+			routes.length += 1;
+			routes[$ - 1] = route;
+			return this;
+		}
+		bool dispatch (Route[] routes)
 		{
 			foreach (route; routes)
 			{
@@ -495,10 +508,59 @@ class UrlConf
 					}
 					baseUri ~= uri[0..match.pre.length];
 					tailUri = tailUri[match.pre.length..$];
-					//if (route.handler(this, environment))
+					auto type = route.handler.type;
+					if (typeid(void function ()) == type)
+					{
+						(*route.handler.peek!(void function ())())();
 						return true;
+					}
+					else if (typeid(void delegate ()) == type)
+					{
+						(*route.handler.peek!(void delegate ())())();
+						return true;
+					}
+					else if (typeid(bool function ()) == type)
+					{
+						if ((*route.handler.peek!(bool function ())())())
+							return true;
+					}
+					else if (typeid(bool delegate ()) == type)
+					{
+						if ((*route.handler.peek!(bool delegate ())())())
+							return true;
+					}
+					else if (typeid(void function (UrlConf)) == type)
+					{
+						(*route.handler.peek!(void function (UrlConf))())(this);
+						return true;
+					}
+					else if (typeid(void delegate (UrlConf)) == type)
+					{
+						(*route.handler.peek!(void delegate (UrlConf))())(this);
+						return true;
+					}
+					else if (typeid(bool function (UrlConf)) == type)
+					{
+						if ((*route.handler.peek!(bool function (UrlConf))())(this))
+							return true;
+					}
+					else if (typeid(bool delegate (UrlConf)) == type)
+					{
+						if ((*route.handler.peek!(bool delegate (UrlConf))())(this))
+							return true;
+					}
+					else
+						throw new Exception("not implemented");
 				}
 			}
 			return false;
+		}
+		bool dispatch ()
+		{
+			return dispatch(routes);
+		}
+		bool dispatch (Route[] routes ...)
+		{
+			return dispatch(routes);
 		}
 }
