@@ -1,15 +1,15 @@
 module http.wsapi; 
 
 import std.string : split, indexOf, tolower, strip, format;
-import std.regex : Regex, match;
+import std.regex : Regex, match, regex;
 import std.conv : to;
 import std.variant : Variant;
 import std.md5 : getDigestString;
 import std.random : uniform;
-import std.algorithm : startsWith;
+import std.algorithm : startsWith, endsWith;
 import std.uri : decode;
 import type : constCast;
-import std.stdarg;
+import std.stdarg, std.stdio, std.file;
 
 string castToTypeAndConcat (string type)
 {
@@ -18,16 +18,16 @@ string castToTypeAndConcat (string type)
 
 abstract class WsApi
 {
-	alias string[string] map;
 	protected:
-		map _getData, _requestHeaders, _responseHeaders, _cookies;
+		string[string] _getData, _requestHeaders, _responseHeaders, _cookies;
 		Variant[string] _postData;
 		string tmpDir;
 		static string[uint] responseCodesStrings;
+		static string[string] mimeTypes;
 		string dataToSend;
 		@property
 		{
-			auto getData (map getData)
+			auto getData (string[string] getData)
 			{
 				_getData = getData;
 				return this;
@@ -37,17 +37,17 @@ abstract class WsApi
 				_postData = postData;
 				return this;
 			}
-			auto requestHeaders (map requestHeaders)
+			auto requestHeaders (string[string] requestHeaders)
 			{
 				_requestHeaders = requestHeaders;
 				return this;
 			}
-			auto responseHeaders (map responseHeaders)
+			auto responseHeaders (string[string] responseHeaders)
 			{
 				_responseHeaders = responseHeaders;
 				return this;
 			}
-			auto cookies (map cookies)
+			auto cookies (string[string] cookies)
 			{
 				_cookies = cookies;
 				return this;
@@ -262,6 +262,10 @@ abstract class WsApi
 				507: "Insufficient Storage", 509: "Bandwidth Limit Exceeded",
 				510: "Not Extended"
 			];
+			mimeTypes = [
+				".png": "image/png", ".gif": "image/gif", ".jpg": "image/jpeg",
+				".jpeg": "image/jpeg", ".css": "text/css", ".js": "text/javascript"
+			];
 		}
 		WsApi sendHeaders ()
 		{
@@ -288,7 +292,8 @@ abstract class WsApi
 				~ "else" ~ castToTypeAndConcat("ulong")
 				~ "else" ~ castToTypeAndConcat("float")
 				~ "else" ~ castToTypeAndConcat("double")
-				~ "else throw new Exception(\"not implemented\");");
+				~ "else" ~ castToTypeAndConcat("void[]")
+				~ "else throw new Exception(\"not implemented for write\");");
 			return this;
 		}
 		WsApi writef (...)
@@ -314,7 +319,7 @@ abstract class WsApi
 				case 8:
 					return write(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5], _arguments[6], _arguments[7]));
 				default:
-					throw new Exception("not implemented");
+					throw new Exception("not implemented for writef");
 			}
 			return this;
 		}
@@ -332,7 +337,7 @@ abstract class WsApi
 				~ "else" ~ castToTypeAndConcat("ulong")
 				~ "else" ~ castToTypeAndConcat("float")
 				~ "else" ~ castToTypeAndConcat("double")
-				~ "else throw new Exception(\"not implemented\");");
+				~ "else throw new Exception(\"not implemented for writeln\");");
 			dataToSend ~= "\r\n";
 			return this;
 		}
@@ -359,7 +364,7 @@ abstract class WsApi
 				case 8:
 					return writeln(format(_arguments[0], _arguments[1], _arguments[2], _arguments[3], _arguments[4], _arguments[5], _arguments[6], _arguments[7]));
 				default:
-					throw new Exception("not implemented");
+					throw new Exception("not implemented for writefln");
 			}
 			return this;
 		}
@@ -423,34 +428,23 @@ class Route
 		Variant handler;
 		this (Regex!(char) regex, Variant handler)
 		{
-			this.regex = handler;
+			this.regex = regex;
 			this.handler = handler;
-		}
-		this (string str, Variant handler)
-		{
-			this(regex(str), handler);
-		}
-		this (Regex!(char) regex, void function (UrlConf) handler)
-		{
-			this(regex, Variant(handler));
-		}
-		this (string str, void function (UrlConf) handler)
-		{
-			this(regex(str), Variant(handler));
-		}
-		this (Regex!(char) regex, void delegate (UrlConf) handler)
-		{
-			this(regex, Variant(handler));
-		}
-		this (string str, void delegate (UrlConf) handler)
-		{
-			this(regex(str), Variant(handler));
 		}
 }
 
-Route route (R, H) (R regex, H handler)
+Route route (R, H) (R re, H handler)
 {
-	return new Route(regex, handler);
+	static if (typeid(R) == typeid(string))
+		return new Route(regex(re), Variant(handler));
+	else
+		return new Route(re, Variant(handler));
+}
+
+/// Needed due to bug in D2 or Phobos
+struct VariantProxy
+{
+	Variant v;
 }
 
 class UrlConf
@@ -460,13 +454,14 @@ class UrlConf
 		HttpRequest request;
 		string urlPrefix, uri, tailUri, baseUri;
 		string[] captures;
-		Variant[string] environment;
+		VariantProxy[string] environment;
 		Route[] routes;
 		this (HttpRequest request, string urlPrefix)
 		{
 			this.request = request;
 			this.urlPrefix = urlPrefix;
-			auto reqUri = request.header("REQUEST_URI");
+			environment["urlConf"] = VariantProxy(Variant(this));
+			auto reqUri = request.header("Request-Uri");
 			if (reqUri !is null)
 			{
 				uri = *reqUri;
@@ -488,6 +483,10 @@ class UrlConf
 		{
 			this(request, "");
 		}
+		this (WsApi wsApi)
+		{
+			this(new HttpRequest(wsApi));
+		}
 		UrlConf bind (Route route)
 		{
 			routes.length += 1;
@@ -499,6 +498,7 @@ class UrlConf
 			foreach (route; routes)
 			{
 				auto match = match(tailUri, route.regex);
+				debug .writeln(tailUri);
 				if (!match.empty)
 				{
 					foreach(capture; match.captures)
@@ -506,51 +506,11 @@ class UrlConf
 						captures.length += 1;
 						captures[$-1] = capture;
 					}
+					environment["captures"] = VariantProxy(Variant(captures));
 					baseUri ~= uri[0..match.pre.length];
 					tailUri = tailUri[match.pre.length..$];
-					auto type = route.handler.type;
-					if (typeid(void function ()) == type)
-					{
-						(*route.handler.peek!(void function ())())();
+					if (activate(route.handler))
 						return true;
-					}
-					else if (typeid(void delegate ()) == type)
-					{
-						(*route.handler.peek!(void delegate ())())();
-						return true;
-					}
-					else if (typeid(bool function ()) == type)
-					{
-						if ((*route.handler.peek!(bool function ())())())
-							return true;
-					}
-					else if (typeid(bool delegate ()) == type)
-					{
-						if ((*route.handler.peek!(bool delegate ())())())
-							return true;
-					}
-					else if (typeid(void function (UrlConf)) == type)
-					{
-						(*route.handler.peek!(void function (UrlConf))())(this);
-						return true;
-					}
-					else if (typeid(void delegate (UrlConf)) == type)
-					{
-						(*route.handler.peek!(void delegate (UrlConf))())(this);
-						return true;
-					}
-					else if (typeid(bool function (UrlConf)) == type)
-					{
-						if ((*route.handler.peek!(bool function (UrlConf))())(this))
-							return true;
-					}
-					else if (typeid(bool delegate (UrlConf)) == type)
-					{
-						if ((*route.handler.peek!(bool delegate (UrlConf))())(this))
-							return true;
-					}
-					else
-						throw new Exception("not implemented");
 				}
 			}
 			return false;
@@ -563,4 +523,43 @@ class UrlConf
 		{
 			return dispatch(routes);
 		}
+		bool activate (Variant handler)
+		{
+			.writefln("environment is 0x%x", &environment);
+			auto type = handler.type;
+			if (typeid(void function (UrlConf, VariantProxy[string])) == type)
+				(*handler.peek!(void function (UrlConf, VariantProxy[string])))(this, environment);
+			else if (typeid(void delegate (UrlConf, VariantProxy[string])) == type)
+				(*handler.peek!(void delegate (UrlConf, VariantProxy[string])))(this, environment);
+			else
+				throw new Exception("not implemented for activate");
+			return true;
+		}
+}
+
+void delegate (UrlConf, VariantProxy[string]) serveStatic (string path)
+{
+	return (UrlConf urlConf, VariantProxy[string] env)
+	{
+		auto request = urlConf.request;
+		auto ws = request.ws;
+		string[] captures = *env["captures"].v.peek!(string[]);
+		debug .writefln("Serving static in %s", path);
+		debug .writeln(captures);
+		auto fileName = path ~ captures[1];
+		debug .writeln(fileName);
+		if (exists(fileName))
+		{
+			foreach (ext, mime; ws.mimeTypes)
+				if (fileName.endsWith(ext))
+				{
+					ws.responseHeader("Content-Type", mime);
+					break;
+				}
+			auto contents = read(fileName);
+			ws.write(contents);
+		}
+		else
+			ws.responseCode = 404;
+	};
 }
