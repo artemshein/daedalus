@@ -6,12 +6,9 @@ abstract class Templater
 {
 	public:
 		string[] tplsDirs;
-		string urlPrefix, mediaPrefix;
-		this (string[] tplsDirs, string urlPrefix, string mediaPrefix)
+		this (string[] tplsDirs)
 		{
 			this.tplsDirs = tplsDirs;
-			this.urlPrefix = urlPrefix;
-			this.mediaPrefix = mediaPrefix;
 		}
 		abstract:
 			bool display (string);
@@ -19,4 +16,15 @@ abstract class Templater
 			bool displayString (string);
 			string fetchString (string);
 			bool assign (string, Variant);
-} 
+}
+
+class Tornado: Templater
+{
+	public:
+		this (string[] tplsDirs)
+		{
+			super(tplsDirs);
+			
+		}
+		
+}

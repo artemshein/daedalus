@@ -65,20 +65,20 @@ abstract class WsApi
 		}
 		WsApi parseMultipartFormData (string boundary, string data)
 		{
-			foreach (block; split(data, boundary)[1..$-1])
+			foreach (block; split(data, boundary)[1 .. $ - 1])
 			{
 				auto eol2Pos = indexOf(block, "\r\n\r\n");
 				if (-1 == eol2Pos)
 					throw new Exception("block delimiter not founded");
-				auto headersStr = block[0..eol2Pos];
-				data = block[eol2Pos+1..$];
+				auto headersStr = block[0 .. eol2Pos];
+				data = block[eol2Pos + 1 .. $];
 				string[string] headers;
 				foreach (header; split(headersStr, "\r\n"))
 				{
 					auto cPos = indexOf(header, ":");
 					if (-1 == cPos)
 						throw new Exception("colon delimiter not founded");
-					auto name = header[0..cPos], value = header[cPos+1..$];
+					auto name = header[0 .. cPos], value = header[cPos + 1 .. $];
 					headers[tolower(name)] = value;
 				}
 				auto contentDispValues = split(headers["content-disposition"], ";");
@@ -86,18 +86,18 @@ abstract class WsApi
 					throw new Exception("invalid Content-Disposition value");
 				string key;
 				bool isFile;
-				foreach (contentDispValue; contentDispValues[1..$])
+				foreach (contentDispValue; contentDispValues[1 .. $])
 				{
 					auto eqPos = indexOf(contentDispValue, "=");
 					if (-1 == eqPos)
 						throw new Exception("equal sign delimiter not founded");
-					auto name = strip(contentDispValue[0..eqPos]), value = tolower(strip(contentDispValue[eqPos+1..$]));
+					auto name = strip(contentDispValue[0 .. eqPos]), value = tolower(strip(contentDispValue[eqPos + 1 .. $]));
 					if ("name" == name)
-						key = value[1..$-1];
+						key = value[1 .. $ - 1];
 					else if ("filename" == name)
 						isFile = true;
 				}
-				block = block[0..$-2];
+				block = block[0 .. $ - 2];
 				if (isFile)
 				{
 					if (block.length)
