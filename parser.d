@@ -6,7 +6,7 @@ debug import std.string;
 
 debug
 {
-	class Debugger (T = invariant(char))
+	class Debugger
 	{
 		alias void function (string, T[]) beforeAction;
 		alias void function (string, T[], int) afterAction;
@@ -25,10 +25,28 @@ debug
 }
 
 typedef uint MatchLen;
-private enum MatchLen NoMatch = MatchLen.max;
+enum MatchLen NoMatch = MatchLen.max;
 
 abstract class Parser
 {
+	protected:
+		static MatchLen matchSkipParser (string s, Parser skipParser)
+		{
+			auto res = NoMatch;
+			while (true)
+			{
+				auto res2 = skipParser(s);
+				if (NoMatch != res2)
+				{
+					s = s[res2 .. $];
+					res = (NoMatch == res)? res2 : res + res2;
+				}
+				else
+					break;
+			}
+			return res;
+		}
+	public:
 	/+alias void function (string) matchAction;
 	alias void delegate (string) matchDelegate;
 	alias void function (string, T[]) beforeAction;
@@ -61,50 +79,42 @@ abstract class Parser
 			addAfterAction(&Debugger!(T).endOut);
 		}
 	}+/
-	MatchLen parse (string s)
-	{
-		/+//debug performBeforeActions(stream);
-		auto result = match(s);
-		//debug performAfterActions(stream, result);
-		if (result >= 0)
-			performSuccessActions(s, result);
-		return result;+/
-		return match(s);
-	}
-	auto opCall (string s) { return parse(s); }
-	Parser opNeg () { return new NotParser(this); }
-	auto opAdd (Parser p) { return new AndParser([this, p]); }
-	auto opSlice (uint from = 0, uint to = 0) { return new RepeatParser(this, from, to); }
-	auto opStar () { return new RepeatParser(this, 0, 0); }
-	auto opCom () { return new RepeatParser(this, 0, 1); }
-	auto opPos () { return new RepeatParser(this, 1, 0); }
-	SequenceParser opShr (Parser p) { return new SequenceParser([this, p]); }
-	SequenceParser opShr (char ch) { return new SequenceParser([this, new CharParser(ch)]); }
-	SequenceParser opShr_r (char ch) { return new SequenceParser([cast(Parser)new CharParser(ch), this]); }
-	auto opSub (Parser p) { return new AndParser([this, -p]); }
-	auto opOr (Parser p) { return new OrParser([this, p]); }
-	auto opOr (char ch) { return new OrParser([this, new CharParser(ch)]); }
-	Parser opIndex (void function () act) { return new VoidFunctionActionParser(this, act); }
-	Parser opIndex (void delegate () act) { return new VoidDelegateActionParser(this, act); }
-	Parser opIndex (void function (char) act) { return new FunctionActionParser!char(this, act); }
-	Parser opIndex (void delegate (char) act) { return new DelegateActionParser!char(this, act); }
-	Parser opIndex (void function (string) act) { return new FunctionActionParser!string(this, act); }
-	Parser opIndex (void delegate (string) act) { return new DelegateActionParser!string(this, act); }
-	Parser opIndex (void function (int) act) { return new FunctionActionParser!int(this, act); }
-	Parser opIndex (void delegate (int) act) { return new DelegateActionParser!int(this, act); }
-	Parser opIndex (void function (uint) act) { return new FunctionActionParser!uint(this, act); }
-	Parser opIndex (void delegate (uint) act) { return new DelegateActionParser!uint(this, act); }
-	Parser opIndex (void function (double) act) { return new FunctionActionParser!double(this, act); }
-	Parser opIndex (void delegate (double) act) { return new DelegateActionParser!double(this, act); }
-	/+Parser opIndex (void function (uint) act) { return new UintActionParser!(void function (uint))(this, act); }
-	Parser opIndex (void delegate (uint) act) { return new UintActionParser!(void delegate (uint))(this, act); }
-	Parser opIndex (void function (int) act) { return new IntActionParser!(void function (int))(this, act); }
-	Parser opIndex (void delegate (int) act) { return new IntActionParser!(void delegate (int))(this, act); }
-	Parser opIndex (void function (double) act) { return new DoubleActionParser!(void function (double))(this, act); }
-	Parser opIndex (void delegate (double) act) { return new DoubleActionParser!(void delegate (double))(this, act); }
-	Parser opIndex (void function (string) act) { return new StrActionParser!(void function (string))(this, act); }
-	Parser opIndex (void delegate (string) act) { return new StrActionParser!(void delegate (string))(this, act); }+/
-	abstract MatchLen match (string, Parser skipParser = null);
+		MatchLen parse (string s, Parser skipParser = null)
+		{
+			/+//debug performBeforeActions(stream);
+			auto result = match(s);
+			//debug performAfterActions(stream, result);
+			if (result >= 0)
+				performSuccessActions(s, result);
+			return result;+/
+			return match(s, skipParser);
+		}
+		MatchLen opCall (string s, Parser skipParser = null) { return parse(s, skipParser); }
+		Parser opNeg () { return new NotParser(this); }
+		AndParser opAdd (Parser p) { return new AndParser([this, p]); }
+		RepeatParser opSlice (uint from = 0, uint to = 0) { return new RepeatParser(this, from, to); }
+		RepeatParser opStar () { return new RepeatParser(this, 0, 0); }
+		RepeatParser opCom () { return new RepeatParser(this, 0, 1); }
+		RepeatParser opPos () { return new RepeatParser(this, 1, 0); }
+		SequenceParser opShr (Parser p) { return new SequenceParser([this, p]); }
+		SequenceParser opShr (char ch) { return new SequenceParser([this, new CharParser(ch)]); }
+		SequenceParser opShr_r (char ch) { return new SequenceParser([cast(Parser)new CharParser(ch), this]); }
+		AndParser opSub (Parser p) { return new AndParser([this, -p]); }
+		OrParser opOr (Parser p) { return new OrParser([this, p]); }
+		OrParser opOr (char ch) { return new OrParser([this, new CharParser(ch)]); }
+		Parser opIndex (void function () act) { return new VoidFunctionActionParser(this, act); }
+		Parser opIndex (void delegate () act) { return new VoidDelegateActionParser(this, act); }
+		Parser opIndex (void function (char) act) { return new FunctionActionParser!char(this, act); }
+		Parser opIndex (void delegate (char) act) { return new DelegateActionParser!char(this, act); }
+		Parser opIndex (void function (string) act) { return new FunctionActionParser!string(this, act); }
+		Parser opIndex (void delegate (string) act) { return new DelegateActionParser!string(this, act); }
+		Parser opIndex (void function (int) act) { return new FunctionActionParser!int(this, act); }
+		Parser opIndex (void delegate (int) act) { return new DelegateActionParser!int(this, act); }
+		Parser opIndex (void function (uint) act) { return new FunctionActionParser!uint(this, act); }
+		Parser opIndex (void delegate (uint) act) { return new DelegateActionParser!uint(this, act); }
+		Parser opIndex (void function (double) act) { return new FunctionActionParser!double(this, act); }
+		Parser opIndex (void delegate (double) act) { return new DelegateActionParser!double(this, act); }
+		abstract MatchLen match (string, Parser skipParser = null);
 }
 
 abstract class UnaryParser: Parser
@@ -131,13 +141,9 @@ abstract class ActionParser (T): UnaryParser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res = parser(s);
 		return (NoMatch == res)
 			? NoMatch
@@ -159,9 +165,9 @@ class FunctionActionParser (T): ActionParser!(void function (T))
 	{
 		super(parser, action);
 	}
-	MatchLen parse (string s)
+	MatchLen parse (string s, Parser skipParser = null)
 	{
-		auto res = match(s);
+		auto res = match(s, skipParser);
 		if (NoMatch != res)
 			static if (is(T == char))
 				action(s[0]);
@@ -192,9 +198,9 @@ class DelegateActionParser (T): ActionParser!(void delegate (T))
 	{
 		super(parser, action);
 	}
-	MatchLen parse (string s)
+	MatchLen parse (string s, Parser skipParser = null)
 	{
-		auto res = match(s);
+		auto res = match(s, skipParser);
 		if (NoMatch != res)
 			static if (is(T == char))
 				action(s[0]);
@@ -210,9 +216,9 @@ class VoidDelegateActionParser: ActionParser!(void delegate ())
 	{
 		super(parser, action);
 	}
-	MatchLen parse (string s)
+	MatchLen parse (string s, Parser skipParser = null)
 	{
-		auto res = match(s);
+		auto res = match(s, skipParser);
 		if (NoMatch != res)
 			action();
 		return res;
@@ -226,103 +232,16 @@ class VoidDelegateActionParser: ActionParser!(void delegate ())
 			value = 5;
 		}
 		auto p = int_[&setValueTo5];
-		assert(NoMatch == p("asc"));
+		assert(NoMatch == p("asc", space));
 		assert(0 == value);
-		assert(3 == p("234"));
+		assert(3 == p("234", space));
+		assert(5 == value);
+		value = 0;
+		assert(NoMatch == p("asc", space));
+		assert(8 == p(" 	\r\n	234", space));
 		assert(5 == value);
 	}
 }
-
-/+
-class EmptyActionParser (T): ActionParser!(T)
-{
-	this (Parser parser, T action)
-	{
-		super(parser, action); 
-	}
-	MatchLen parse (string s)
-	{
-		auto res = match(s);
-		if (NoMatch != res)
-			action();
-		return res;
-	}
-}
-
-class CharActionParser (T): ActionParser!(T)
-{
-	this (Parser parser, T action)
-	{
-		super(parser, action);
-	}
-	MatchLen parse (string s)
-	{
-		auto res = match(s);
-		if (NoMatch != res)
-			action(s[0]);
-		return res;
-	}
-}
-
-class StrActionParser (T): ActionParser!(T)
-{
-	this (Parser parser, T action)
-	{
-		super(parser, action);
-	}
-	MatchLen parse (string s)
-	{
-		auto res = match(s);
-		if (NoMatch != res)
-			action(s[0 .. res]);
-		return res;
-	}
-}
-
-class UintActionParser (T): ActionParser!(T)
-{
-	this (Parser parser, T action)
-	{
-		super(parser, action);
-	}
-	MatchLen parse (string s)
-	{
-		auto res = match(s);
-		if (NoMatch != res)
-			action(to!(uint)(s[0 .. res]));
-		return res;
-	}
-}
-
-class IntActionParser (T): ActionParser!(T)
-{
-	this (Parser parser, T action)
-	{
-		super(parser, action);
-	}
-	MatchLen parse (string s)
-	{
-		auto res = match(s);
-		if (NoMatch != res)
-			action(to!(int)(s[0 .. res]));
-		return res;
-	}
-}
-
-class DoubleActionParser (T): ActionParser!(T)
-{
-	this (Parser parser, T action)
-	{
-		super(parser, action);
-	}
-	MatchLen parse (string s)
-	{
-		auto res = match(s);
-		if (NoMatch != res)
-			action(to!(double)(s[0 .. res]));
-		return res;
-	}
-}+/
 
 class CharParser: Parser
 {
@@ -333,13 +252,9 @@ class CharParser: Parser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res = (0 == s.length || s[0] != value)? NoMatch : 1;
 		return (NoMatch == res)
 			? NoMatch
@@ -348,16 +263,15 @@ class CharParser: Parser
 				: res + skipRes
 			);
 	}
-	//Parser opIndex (void function (char) action) { return new FunctionActionParser!char(this, action); }
-	//Parser opIndex (void delegate (char) action) { return new DelegateActionParser!char(this, action); }
 	unittest
 	{
 		scope t = new Test!CharParser();
 		auto p = char_('A');
-		assert(1 == p("ABCDE"));
-		assert(NoMatch == p("BCDE"));
-		assert(NoMatch == p(""));
+		assert(1 == p("ABCDE", space));
+		assert(NoMatch == p("BCDE", space));
+		assert(NoMatch == p("", space));
 		assert(1 == p("A"));
+		assert(2 == p("	A", space));
 	}
 }
 
@@ -365,13 +279,9 @@ class EndParser: Parser
 {
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res = (0 == s.length)? 0 : NoMatch;
 		return (NoMatch == res)
 			? NoMatch
@@ -385,6 +295,7 @@ class EndParser: Parser
 		scope t = new Test!EndParser();
 		assert(0 == end(""));
 		assert(NoMatch == end("A"));
+		assert(4 == end("  	 ", space));
 	}
 }
 
@@ -397,13 +308,9 @@ class StrParser: Parser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res = (s.length < value.length || s[0 .. value.length] != value)
 			? NoMatch
 			: cast(MatchLen)value.length;
@@ -418,9 +325,10 @@ class StrParser: Parser
 	{
 		scope t = new Test!StrParser();
 		auto p = string_("CDE");
-		assert(3 == p("CDEFGH"));
-		assert(NoMatch == p("CDFG"));
-		assert(NoMatch == p(""));
+		assert(3 == p("CDEFGH", space));
+		assert(NoMatch == p("CDFG", space));
+		assert(NoMatch == p("", space));
+		assert(7 == p("	 \r\nCDE", space));
 	}
 }
 
@@ -432,13 +340,9 @@ class SequenceParser: ComposeParser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res;
 		foreach (p; parsers)
 		{
@@ -461,10 +365,11 @@ class SequenceParser: ComposeParser
 	{
 		scope t = new Test!SequenceParser();
 		auto p = char_('A') >> 'B' >> 'C' >> 'D';
-		assert(4 == p("ABCDE"));
-		assert(NoMatch == p("BCDE"));
-		assert(NoMatch == p(""));
-		assert(4 == p("ABCD"));
+		assert(4 == p("ABCDE", space));
+		assert(NoMatch == p("BCDE", space));
+		assert(NoMatch == p("", space));
+		assert(4 == p("ABCD", space));
+		assert(8 == p("	 \r	ABCD", space));
 	}
 }
 
@@ -489,13 +394,9 @@ class RepeatParser: UnaryParser
 		}
 		MatchLen match (string s, Parser skipParser = null)
 		{
-			MatchLen skipRes;
-			if (skipParser !is null)
-			{
-				skipRes = skipParser(s);
-				if (NoMatch != skipRes)
-					s = s[skipRes .. $];
-			}
+			MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+			if (NoMatch != skipRes)
+				s = s[skipRes .. $];
 			uint counter;
 			MatchLen res;
 			while (counter < to)
@@ -520,25 +421,28 @@ class RepeatParser: UnaryParser
 	{
 		scope t = new Test!RepeatParser();
 		auto p = char_('Z')[3..5];
-		assert(NoMatch == p(""));
-		assert(NoMatch == p("ZZ"));
-		assert(3 == p("ZZZ"));
+		assert(NoMatch == p("", space));
+		assert(NoMatch == p("ZZ", space));
+		assert(3 == p("ZZZ", space));
 		assert(4 == p("ZZZZ"));
 		assert(5 == p("ZZZZZ"));
-		assert(5 == p("ZZZZZZ"));
+		assert(5 == p("ZZZZZZ", space));
+		assert(9 == p("	   ZZZZZZ", space));
 		auto sp = char_('A') >> 'B' >> 'C' >> 'D';
 		auto p2 = sp[0..2];
-		assert(0 == p2(""));
-		assert(0 == p2("ABECDABCDEFGH"));
-		assert(4 == p2("ABCDABC"));
-		assert(8 == p2("ABCDABCDEFGH"));
-		assert(8 == p2("ABCDABCDABCDEFGH"));
+		assert(0 == p2("", space));
+		assert(0 == p2("ABECDABCDEFGH", space));
+		assert(4 == p2("ABCDABC", space));
+		assert(8 == p2("ABCDABCDEFGH", space));
+		assert(8 == p2("ABCDABCDABCDEFGH", space));
+		assert(10 == p2("	\rABCDABCDABCDEFGH", space));
 		auto p3 = *char_('X');
-		assert(0 == p3("YXZ"));
-		assert(1 == p3("X"));
-		assert(1 == p3("XYZ"));
-		assert(3 == p3("XXXYZ"));
-		assert(5 == p3("XXXXX"));
+		assert(0 == p3("YXZ", space));
+		assert(1 == p3("X", space));
+		assert(1 == p3("XYZ", space));
+		assert(3 == p3("XXXYZ", space));
+		assert(5 == p3("XXXXX", space));
+		assert(10 == p3("		\r\n\nXXXXX", space));
 	}
 }
 
@@ -550,13 +454,9 @@ class AndParser: ComposeParser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res;
 		foreach (p; parsers)
 		{
@@ -577,16 +477,19 @@ class AndParser: ComposeParser
 	{
 		scope t = new Test!AndParser();
 		auto p = char_('A') + string_("ABC");
-		assert(NoMatch == p(""));
-		assert(NoMatch == p("A"));
-		assert(3 == p("ABC"));
-		assert(3 == p("ABCDE"));
+		assert(NoMatch == p("", space));
+		assert(NoMatch == p("A", space));
+		assert(3 == p("ABC", space));
+		assert(3 == p("ABCDE", space));
+		assert(6 == p("\v\r\nABCDE", space));
 		auto p2 = string_("ABC") - string_("ABCDE");
-		assert(NoMatch == p2(""));
-		assert(3 == p2("ABC"));
-		assert(3 == p2("ABCD"));
-		assert(NoMatch == p2("ABCDE"));
-		assert(NoMatch == p2("ABCDEF"));
+		assert(NoMatch == p2("", space));
+		assert(3 == p2("ABC", space));
+		assert(3 == p2("ABCD", space));
+		assert(4 == p2("\rABCD", space));
+		assert(NoMatch == p2("ABCDE", space));
+		assert(NoMatch == p2("ABCDEF", space));
+		assert(NoMatch == p2("\r\nABCDEF", space));
 	}
 }
 
@@ -598,13 +501,9 @@ class OrParser: ComposeParser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res = NoMatch;
 		foreach (p; parsers)
 		{
@@ -626,10 +525,11 @@ class OrParser: ComposeParser
 	{
 		scope t = new Test!OrParser();
 		auto p = string_("ABC") | string_("DEF");
-		assert(NoMatch == p(""));
-		assert(3 == p("ABC"));
-		assert(3 == p("DEF"));
-		assert(NoMatch == p("BCDEF"));
+		assert(NoMatch == p("\r\n", space));
+		assert(3 == p("ABC", space));
+		assert(3 == p("DEF", space));
+		assert(5 == p("\r\nDEF", space));
+		assert(NoMatch == p("BCDEF", space));
 	}
 }
 
@@ -641,13 +541,9 @@ class NotParser: UnaryParser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res = (NoMatch == parser(s))? (s.length > 0? 1 : 0) : NoMatch;
 		return (NoMatch == res)
 			? NoMatch
@@ -666,10 +562,11 @@ class NotParser: UnaryParser
 		auto ap = char_('A') + string_("ABC");
 		auto p = -ap;
 		assert(-p is ap);
-		assert(0 == p(""));
-		assert(1 == p("A"));
-		assert(NoMatch == p("ABC"));
-		assert(NoMatch == p("ABCDE"));
+		assert(0 == p("", space));
+		assert(1 == p("A", space));
+		assert(3 == p("\r A", space));
+		assert(NoMatch == p("ABC", space));
+		assert(NoMatch == p("ABCDE", space));
 	}
 }
 
@@ -683,13 +580,9 @@ class RangeParser: Parser
 	}
 	MatchLen match (string s, Parser skipParser = null)
 	{
-		MatchLen skipRes;
-		if (skipParser !is null)
-		{
-			skipRes = skipParser(s);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
-		}
+		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
+		if (NoMatch != skipRes)
+			s = s[skipRes .. $];
 		MatchLen res = (s.length && s[0] >= start && s[0] <= end)? 1 : NoMatch;
 		return (NoMatch == res)
 			? NoMatch
@@ -702,11 +595,12 @@ class RangeParser: Parser
 	{
 		scope t = new Test!RangeParser();
 		auto p = range('A', 'C');
-		assert(NoMatch == p(""));
-		assert(1 == p("AB"));
-		assert(1 == p("BCDEF"));
-		assert(1 == p("C"));
-		assert(NoMatch == p("DEF"));
+		assert(NoMatch == p("  ", space));
+		assert(1 == p("AB", space));
+		assert(1 == p("BCDEF", space));
+		assert(1 == p("C", space));
+		assert(3 == p("\r\nC", space));
+		assert(NoMatch == p("DEF", space));
 	}
 }
 
@@ -763,9 +657,9 @@ ParseInfo parse (Grammar grammar, string s)
 	return new ParseInfo(grammar, s);
 }
 
-void delegate (T[]) appendTo (T) (ref T v)
+void delegate (T) appendTo (T) (ref T[] v)
 {
-	void res (T[] arg1) { v.length = v.length + 1; v[$ - 1] = arg1; }
+	void res (T arg1) { v.length += 1; v[$ - 1] = arg1; }
 	return &res;
 }
 
@@ -797,7 +691,7 @@ RangeParser range (uint start, uint end)
 
 static EndParser end = void;
 static Parser alpha = void, alnum = void, digit = void, eol = void,
-	anychar = void, int_ = void, uint_ = void, double_ = void;
+	anychar = void, int_ = void, uint_ = void, double_ = void, space = void;
 
 static this ()
 {
@@ -811,6 +705,7 @@ static this ()
 	uint_ = ~char_('+') >> +digit;
 	int_ = ~(char_('+') | '-') >> +digit;
 	double_ = ~(char_('+') | '-') >> ((~(+digit) >> ('.' >> +digit)) | +digit) >> ~e;
+	space = char_(' ') | '\t' | '\v' | eol;
 	/*debug
 	{
 		traceParser(end_p, "end_p");
@@ -826,10 +721,11 @@ unittest
 {
 	new Test!alpha(
 	{
-		assert(1 == alpha("b"));
-		assert(1 == alpha("D"));
-		assert(NoMatch == alpha("0"));
-		assert(NoMatch == alpha(""));
+		assert(1 == alpha("b", space));
+		assert(1 == alpha("D", space));
+		assert(3 == alpha("  D", space));
+		assert(NoMatch == alpha("0", space));
+		assert(NoMatch == alpha("\r\n", space));
 	});
 	new Test!digit(
 	{
