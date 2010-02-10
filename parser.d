@@ -139,13 +139,65 @@ CharParser char_ (char ch)
 	return new CharParser(ch);
 }
 
+template attrTypes (ParsersTypes ...)
+{
+	static if (ParsersTypes.length > 1)
+		alias TypeTuple!(ParsersTypes[0].AttrType, attrTypes!(ParsersTypes[1 .. $])) attrTypes;
+	else
+		alias TypeTuple!(ParsersTypes[0].AttrType) attrTypes;
+}
+
+template attrType (ParserType)
+{
+	alias ParserType.AttrType attrType;
+}
+
+bool anyIf (Params ...) (ref string s, Parser skipper, Params[0 .. $/2] params, out Params[$/2 .. $] aparams)
+{
+	/+
+	static if (Parsers.length > 1)
+		return parsers[0](s, skipper, attrs[0]) && anyIf!(Parsers[1 .. $])(s, skipper, parsers[1 .. $], attrs[1 .. $]);
+	else
+		return parsers[0](s, skipper, attrs[0]);+/
+	return true;
+}
+
 class SequenceParser (ParsersTypes ...)
 {
-	ParsersTypes parsers;
-	this (ParsersTypes parsers)
-	{
-		this.parsers = parsers;
-	}
+	protected:
+		ParsersTypes parsers;
+	public:
+		this (ParsersTypes parsers)
+		{
+			this.parsers = parsers;
+		}
+		SequenceParser!(ParsersTypes, ParserType) opShr (ParserType) (ParserType p)
+		{
+			return new SequenceParser!(ParsersTypes, ParserType)(parsers, p);
+		}
+		bool opCall (ref string s, Parser skipper, out attrTypes!(ParsersTypes) attrs)
+		{
+			auto fs = s;
+			if (skipper !is null)
+				while (skipper(s)) {}
+			if (!anyIf!(ParsersTypes, attrTypes!(ParsersTypes))(s, skipper, parsers, attrs))
+			{
+				s = fs;
+				return false;
+			}
+			return true;	
+		}
+		/+
+		bool opCall (s, skipper, char c, uint u, byte b)
+		{
+			auto fs = s;
+			if (skipper !is null)
+				while (skipper(s)) {}
+			if (anyIf(s, skipper, parsers[0], parsers[1], parsers[2], c, u, b))
+				return true;
+			s = fs;
+			return false;
+		}+/
 }
 
 static
@@ -176,9 +228,11 @@ unittest
 {
 	auto p = char_('A') >> char_('B') >> char_('C');
 	auto s = "ABCDEF";
-	char[] s2;
-	assert(p(s, null, s2));
-	assert("ABC" == s2);
+	char c1, c2, c3;
+	assert(p(s, null, c1, c2, c3));
+	assert('A' == c1);
+	assert('B' == c2);
+	assert('C' == c3);
 	assert("DEF" == s);
 }
 
