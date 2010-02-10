@@ -1,9 +1,189 @@
 module parser;
 
-import std.stdio, std.stdarg, std.conv;
+import std.stdio, std.stdarg, std.conv, std.array, std.typetuple;
 version(unittest) import qc;
 debug import std.string;
 
+class Parser
+{
+	bool opCall (ref string s, Parser skipper = null) {return false;}
+}
+
+class NumericParser (Type)
+{
+	bool opCall (ref string s, Parser skipper = null, out Type attr = Type.init)
+	{
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		try
+		{
+			attr = parse!Type(s);
+		}
+		catch
+		{
+			s = fs;
+			return false;
+		}
+		return true;
+	}
+}
+unittest
+{
+	scope t = new Test!NumericParser();
+	auto s = "123bcd";
+	uint a;
+	assert(uint_(s, null, a));
+	assert(a == 123);
+	assert(s == "bcd");
+	s = "123bcd";
+	byte b;
+	assert(byte_(s, null, b));
+	assert(b == 123);
+	assert(s == "bcd");
+}
+
+class RepeatParser (ParserType)
+{
+	ParserType parser;
+	uint from, to;
+	this (ParserType parser, uint from, uint to = 0)
+	{
+		this.parser = parser;
+		this.from = from;
+		this.to = to? to : to.max;
+	}
+	bool opCall (ref string s, Parser skipper = null, out ParserType.AttrType[] attr = (ParserType.AttrType[]).init)
+	{
+		auto fs = s;
+		auto app = appender(&attr);
+		if (skipper !is null)
+			while (skipper(s)) {}
+		uint cnt;
+		ParserType.AttrType a;
+		while (cnt < to && parser(s, skipper, a))
+		{
+			++cnt;
+			app.put(a);
+		}
+		if (cnt < from)
+		{
+			s = fs;
+			return false;
+		}
+		return true;
+	}
+}
+
+unittest
+{
+	scope t = new Test!(RepeatParser!CharParser, "!CharParser")();
+	auto a = +char_('A');
+	auto s = "AAAAA";
+	char[] s2;
+	assert(a(s, null, s2));
+	assert("" == s);
+	assert("AAAAA" == s2);
+}
+
+/+class BasicParser (Type)
+{
+	typedef AttrType Type;
+	
+}+/
+
+class CharParser
+{
+	alias char AttrType;
+	AttrType ch;
+	this (AttrType ch)
+	{
+		this.ch = ch;
+	}
+	SequenceParser!(CharParser, ParserType) opShr (ParserType) (ParserType p)
+	{
+		return new SequenceParser!(CharParser, ParserType)(this, p);
+	}
+	RepeatParser!CharParser opPos ()
+	{
+		return new RepeatParser!CharParser(this, 1);
+	}
+	bool opCall (ref string s, Parser skipper = null, out AttrType attr = AttrType.init)
+	{
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		if (s.length == 0 || (attr = s[0]) != ch)
+		{
+			s = fs;
+			return false;
+		}
+		s = s[1 .. $];
+		return true;
+	}
+}
+
+unittest
+{
+	scope t = new Test!CharParser();
+	auto p = char_('Z');
+	auto s = "ZZZ";
+	char ch;
+	assert(p(s, null, ch));
+	assert('Z' == ch);
+	assert("ZZ" == s);
+}
+
+CharParser char_ (char ch)
+{
+	return new CharParser(ch);
+}
+
+class SequenceParser (ParsersTypes ...)
+{
+	ParsersTypes parsers;
+	this (ParsersTypes parsers)
+	{
+		this.parsers = parsers;
+	}
+}
+
+static
+{
+	NumericParser!ulong ulong_;
+	NumericParser!uint uint_;
+	NumericParser!ushort ushort_;
+	NumericParser!ubyte ubyte_;
+	NumericParser!long long_;
+	NumericParser!int int_;
+	NumericParser!short short_;
+	NumericParser!byte byte_;
+}
+
+static this ()
+{
+	ulong_ = new NumericParser!ulong();
+	uint_ = new NumericParser!uint();
+	ushort_ = new NumericParser!ushort();
+	ubyte_ = new NumericParser!ubyte();
+	long_ = new NumericParser!long();
+	int_ = new NumericParser!int();
+	short_ = new NumericParser!short();
+	byte_ = new NumericParser!byte();
+}
+
+unittest
+{
+	auto p = char_('A') >> char_('B') >> char_('C');
+	auto s = "ABCDEF";
+	char[] s2;
+	assert(p(s, null, s2));
+	assert("ABC" == s2);
+	assert("DEF" == s);
+}
+
+/+
+/+
 debug
 {
 	class Debugger
@@ -22,14 +202,11 @@ debug
 			writefln("%s%srule (%s) \"%s\"", repeat(" ", depth), result >= 0? "/" : "#", parserName, stream[0..((result > 0)? result : 0)]);
 		}
 	}
-}
-
-typedef uint MatchLen;
-enum MatchLen NoMatch = MatchLen.max;
+}+/
 
 abstract class Parser
 {
-	protected:
+	/+protected:
 		static MatchLen matchSkipParser (string s, Parser skipParser)
 		{
 			auto res = NoMatch;
@@ -46,6 +223,7 @@ abstract class Parser
 			}
 			return res;
 		}
+		uint offset;+/
 	public:
 	/+alias void function (string) matchAction;
 	alias void delegate (string) matchDelegate;
@@ -79,17 +257,7 @@ abstract class Parser
 			addAfterAction(&Debugger!(T).endOut);
 		}
 	}+/
-		MatchLen parse (string s, Parser skipParser = null)
-		{
-			/+//debug performBeforeActions(stream);
-			auto result = match(s);
-			//debug performAfterActions(stream, result);
-			if (result >= 0)
-				performSuccessActions(s, result);
-			return result;+/
-			return match(s, skipParser);
-		}
-		MatchLen opCall (string s, Parser skipParser = null) { return parse(s, skipParser); }
+		bool opCall (out string s, Parser skipper = null) { return parse(s, skipper); }
 		Parser opNeg () { return new NotParser(this); }
 		AndParser opAdd (Parser p) { return new AndParser([this, p]); }
 		RepeatParser opSlice (uint from = 0, uint to = 0) { return new RepeatParser(this, from, to); }
@@ -114,7 +282,7 @@ abstract class Parser
 		Parser opIndex (void delegate (uint) act) { return new DelegateActionParser!uint(this, act); }
 		Parser opIndex (void function (double) act) { return new FunctionActionParser!double(this, act); }
 		Parser opIndex (void delegate (double) act) { return new DelegateActionParser!double(this, act); }
-		abstract MatchLen match (string, Parser skipParser = null);
+		abstract bool parse (out string s, Parser skipper = null);
 }
 
 abstract class UnaryParser: Parser
@@ -139,18 +307,14 @@ abstract class ActionParser (T): UnaryParser
 		this.parser = parser;
 		this.action = action;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res = parser(s);
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		auto fs = s;
+		if (parser(s, skipper))
+			static if (is(T == char))
+				action(s[0]);
+			else
+				action(to!(T)(s[0 .. res]));
 	}
 	ActionParser!(T) opIndex (T action)
 	{	// ???
@@ -165,7 +329,7 @@ class FunctionActionParser (T): ActionParser!(void function (T))
 	{
 		super(parser, action);
 	}
-	MatchLen parse (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
 		auto res = match(s, skipParser);
 		if (NoMatch != res)
@@ -250,18 +414,18 @@ class CharParser: Parser
 	{
 		value = v;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res = (0 == s.length || s[0] != value)? NoMatch : 1;
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		if (0 == s.length || s[0] != value)
+		{
+			s = fs;
+			return false;
+		}
+		s = s[1 .. $];
+		return true;
 	}
 	unittest
 	{
@@ -277,18 +441,17 @@ class CharParser: Parser
 
 class EndParser: Parser
 {
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res = (0 == s.length)? 0 : NoMatch;
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		if (0 != s.length)
+		{
+			s = fs;
+			return false;
+		}
+		return true;
 	}
 	unittest
 	{
@@ -306,20 +469,18 @@ class StrParser: Parser
 	{
 		value = v;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res = (s.length < value.length || s[0 .. value.length] != value)
-			? NoMatch
-			: cast(MatchLen)value.length;
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		if (s.length < value.length || s[0 .. value.length] != value)
+		{
+			s = fs;
+			return false;
+		}
+		s = s[value.length .. $];
+		return true;
 	}
 	unittest
 	{
@@ -338,25 +499,18 @@ class SequenceParser: ComposeParser
 	{
 		this.parsers = parsers;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res;
+		auto fs = s;
 		foreach (p; parsers)
 		{
-			auto res2 = p(s[res .. $]);
-			if (NoMatch == res2)
-				return NoMatch;
-			res += res2;
+			if (!p(s, skipper))
+			{
+				s = fs;
+				return false;
+			}
 		}
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		return true;
 	}
 	SequenceParser opShr (SequenceParser parser) { return new SequenceParser(parsers ~ parser.parsers); }
 	SequenceParser opShr (Parser parser) { return new SequenceParser(parsers ~ parser); }
@@ -392,29 +546,22 @@ class RepeatParser: UnaryParser
 			else
 				this.to = to.max;
 		}
-		MatchLen match (string s, Parser skipParser = null)
+		bool parse (out string s, Parser skipper = null)
 		{
-			MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-			if (NoMatch != skipRes)
-				s = s[skipRes .. $];
+			auto fs = s;
 			uint counter;
-			MatchLen res;
 			while (counter < to)
 			{
-				MatchLen res2 = parser(s[res .. $]);
-				if (NoMatch == res2)
+				if (!parser(s, skipper))
 					break;
 				++counter;
-				res += res2;
 			}
 			if (counter < from)
-				return NoMatch;
-			return (NoMatch == res)
-				? NoMatch
-				: ((NoMatch == skipRes)
-					? res
-					: res + skipRes
-				);
+			{
+				s = fs;
+				return false;
+			}
+			return true;
 		}
 		
 	unittest
@@ -452,26 +599,18 @@ class AndParser: ComposeParser
 	{
 		this.parsers = parsers;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res;
+		auto fs = s;
 		foreach (p; parsers)
 		{
-			auto res2 = p(s);
-			if (NoMatch == res2)
-				return NoMatch;
-			if (res2 > res)
-				res = res2;
+			if (!p(s, skipper))
+			{
+				s = fs;
+				return false;
+			}
 		}
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		return true;
 	}
 	unittest
 	{
@@ -499,27 +638,16 @@ class OrParser: ComposeParser
 	{
 		this.parsers = parsers;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res = NoMatch;
+		auto fs = s;
 		foreach (p; parsers)
 		{
-			auto res2 = p(s);
-			if (NoMatch != res2)
-			{
-				res = res2;
-				break;
-			}
+			if (p(s, skipper))
+				return true;
 		}
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		s = fs;
+		return false;
 	}
 	unittest
 	{
@@ -539,18 +667,16 @@ class NotParser: UnaryParser
 	{
 		this.parser = parser;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res = (NoMatch == parser(s))? (s.length > 0? 1 : 0) : NoMatch;
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		auto fs = s;
+		if (parser(s, skipper))
+		{
+			s = fs;
+			return false;
+		}
+		s = s[$ > 0? 1 : 0 .. $];
+		return true;
 	}
 	Parser opNeg ()
 	{
@@ -578,18 +704,18 @@ class RangeParser: Parser
 		this.start = start;
 		this.end = end;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parser (out string s, Parser skipper = null)
 	{
-		MatchLen skipRes = (skipParser is null)? NoMatch : matchSkipParser(s, skipParser);
-		if (NoMatch != skipRes)
-			s = s[skipRes .. $];
-		MatchLen res = (s.length && s[0] >= start && s[0] <= end)? 1 : NoMatch;
-		return (NoMatch == res)
-			? NoMatch
-			: ((NoMatch == skipRes)
-				? res
-				: res + skipRes
-			);
+		auto fs = s;
+		if (skipper !is null)
+			while(skipper(s)) {}
+		if (s.length && s[0] >= start && s[0] <= end)
+		{
+			s = s[1 .. $];
+			return true;
+		}
+		s = fs;
+		return false;
 	}
 	unittest
 	{
@@ -611,14 +737,12 @@ abstract class ContextParser: UnaryParser
 		this.parser = parser;
 		return &this;
 	}
-	MatchLen match (string s, Parser skipParser = null)
+	bool parse (out string s, Parser skipper = null)
 	{
-		if (!parser)
-			return NoMatch;
-		return parser.match(s, skipParser);
+		return parser.parse(s, skipper);
 	}
 }
-
+/+
 abstract class Grammar
 {
 	abstract Parser start ();
@@ -656,7 +780,7 @@ ParseInfo parse (Grammar grammar, string s)
 {
 	return new ParseInfo(grammar, s);
 }
-
++/
 void delegate (T) appendTo (T) (ref T[] v)
 {
 	void res (T arg1) { v.length += 1; v[$ - 1] = arg1; }
@@ -847,3 +971,4 @@ unittest
 		assert((value - -2432.54e-2) < 0.01);
 	});
 }
++/
