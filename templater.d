@@ -104,18 +104,6 @@ class Tornado: Templater
 					;
 			}
 		}
-		class StatementParser: ContextParser
-		{
-			Statement statement = void;
-			this ()
-			{
-				auto expr = new ExpressionParser();
-				parser
-					= (string_("if") >> *space >> expr)[{ statement = new IfStatement(expr.expr); }]
-					| string_("endif")[{ statement = new EndIfStatement(); }]
-					;
-			}
-		}
 		class DoBlockParser: ContextParser
 		{
 			TplDoBlock doBlock = void;
@@ -131,7 +119,57 @@ class Tornado: Templater
 					;
 			}
 		}
-		class TplParser: ContextParser
+		class IfStatementParser: ContextParser
+		{
+			this ()
+			{
+				parser
+					= doBlockBegin
+					>> *space
+					>> string_("if")
+					>> +space
+					>> expression
+					>> *space
+					>> doBlockEnd
+					;
+			}
+		}
+		class ElseStatementParser: ContextParser
+		{
+			this ()
+			{
+				parser
+					= doBlockBegin
+					>> *space
+					>> string_("else")
+					>> *space
+					>> doBlockEnd
+					;
+			}
+		}
+		class EndifStatementParser: ContextParser
+		{
+			this ()
+			{
+				parser
+					= doBlockBegin
+					>> *space
+					>> string_("endif")
+					>> *space
+					>> doBlockEnd
+					;
+			}
+		}
+		class StatementParser: ContextParser
+		{
+			this ()
+			{
+				parser
+					= ifStatement >> script >> ~(elseStatement >> script) >> endIfStatement
+					;
+			}
+		}
+		class ScriptParser: ContextParser
 		{
 			DoBlockParser doBlock;
 			char[] contentBlock;
@@ -160,13 +198,12 @@ class Tornado: Templater
 			}
 			this ()
 			{
-				doBlock = new DoBlockParser();
-				auto printBlock = string_("{{") >> string_("}}");
-				auto commentBlock = string_("{#") >> *(-string_("#}")) >> string_("#}");
+				//auto printBlock = string_("{{") >> string_("}}");
+				auto comment = string_("{#") >> *(-string_("#}")) >> string_("#}");
 				parser
 					=
-					*	(commentBlock
-						| doBlock[{ closeContentBlock(); appendElement(doBlock.doBlock); }]
+					*	( comment
+						| statement
 						| anychar[&appendContent]
 						)
 					>> end[{ closeContentBlock(); elements.length = elsCnt; }]
@@ -179,18 +216,29 @@ class Tornado: Templater
 				return super.parse(s, skipParser);
 			}
 		}
-		TplParser parser;
 		string executeScript (TplElements[] els)
 		{
 			string res;
 			
 			return res;
 		}
+		ScriptParser script;
+		IfStatementParser ifStatement;
+		ElseStatementParser elseStatement;
+		EndifStatementParser endifStatement;
+		StatementParser statement;
+		StringParser doBlockBegin, doBlockEnd;
 	public:
 		this (string[] tplsDirs = null, WsApi ws = null)
 		{
 			super(tplsDirs, ws);
-			parser = new TplParser();
+			doBlockBegin = string_("{%");
+			doBlockEnd = string_("%}");
+			script = new ScriptParser();
+			ifStatement = new IfStatementParser();
+			elseStatement = new ElseStatementParser();
+			endifStatement = new EndifStatementParser();
+			statement = new StatementParser();
 		}
 		string fetchString (string s)
 		{

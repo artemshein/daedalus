@@ -9,9 +9,42 @@ class Parser
 	bool opCall (ref string s, Parser skipper = null) {return false;}
 }
 
+/++
+ + Helpers
+ +/
+
+string generateOpIndexMethods (string parserType)
+{
+	auto funcStr = "FunctionActionParser!(" ~ parserType ~")";
+	auto dlgStr = "DelegateActionParser!(" ~ parserType ~")";
+	return funcStr ~ " opIndex (void function (AttrType) act) { return new " ~ funcStr ~ "(this, act); } "
+		~ dlgStr ~ " opIndex (void delegate (AttrType) act) { return new " ~ dlgStr ~ "(this, act); } ";
+}
+
+/++
+ + NumericParser
+ +/
+
 class NumericParser (Type)
 {
-	bool opCall (ref string s, Parser skipper = null, out Type attr = Type.init)
+	alias Type AttrType;
+	bool opCall (ref string s, Parser skipper = null)
+	{
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		try
+		{
+			parse!Type(s);
+		}
+		catch
+		{
+			s = fs;
+			return false;
+		}
+		return true;
+	}
+	bool opCall (ref string s, Parser skipper = null, out AttrType attr = Type.init)
 	{
 		auto fs = s;
 		if (skipper !is null)
@@ -27,7 +60,9 @@ class NumericParser (Type)
 		}
 		return true;
 	}
+	mixin(generateOpIndexMethods(typeof(this).stringof));
 }
+
 unittest
 {
 	scope t = new Test!NumericParser();
@@ -43,8 +78,13 @@ unittest
 	assert(s == "bcd");
 }
 
+/++
+ + RepeatParser
+ +/
+
 class RepeatParser (ParserType)
 {
+	alias ParserType.AttrType[] AttrType;
 	ParserType parser;
 	uint from, to;
 	this (ParserType parser, uint from, uint to = 0)
@@ -53,7 +93,22 @@ class RepeatParser (ParserType)
 		this.from = from;
 		this.to = to? to : to.max;
 	}
-	bool opCall (ref string s, Parser skipper = null, out ParserType.AttrType[] attr = (ParserType.AttrType[]).init)
+	bool opCall (ref string s, Parser skipper = null)
+	{
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		uint cnt;
+		while (cnt < to && parser(s, skipper))
+			++cnt;
+		if (cnt < from)
+		{
+			s = fs;
+			return false;
+		}
+		return true;
+	}
+	bool opCall (ref string s, Parser skipper = null, out AttrType attr = AttrType.init)
 	{
 		auto fs = s;
 		auto app = appender(&attr);
@@ -92,6 +147,10 @@ unittest
 	
 }+/
 
+/++
+ + CharParser
+ +/
+
 class CharParser
 {
 	alias char AttrType;
@@ -107,6 +166,19 @@ class CharParser
 	RepeatParser!CharParser opPos ()
 	{
 		return new RepeatParser!CharParser(this, 1);
+	}
+	bool opCall (ref string s, Parser skipper = null)
+	{
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		if (s.length == 0 || s[0] != ch)
+		{
+			s = fs;
+			return false;
+		}
+		s = s[1 .. $];
+		return true;
 	}
 	bool opCall (ref string s, Parser skipper = null, out AttrType attr = AttrType.init)
 	{
@@ -138,6 +210,59 @@ CharParser char_ (char ch)
 {
 	return new CharParser(ch);
 }
+/++
+ + StringParser
+ +/
+
+class StringParser
+{
+	alias string AttrType;
+	string str;
+	this (string s)
+	{
+		this.str = s;
+	}
+	SequenceParser!(StringParser, ParserType) opShr (ParserType) (ParserType p)
+	{
+		return new SequenceParser!(StringParser, ParserType)(this, p);
+	}
+	bool opCall (ref string s, Parser skipper = null)
+	{
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		if (s.length < str.length || s[0 .. str.length] != str)
+		{
+			s = fs;
+			return false;
+		}
+		s = s[str.length .. $];
+		return true;
+	}
+	bool opCall (ref string s, Parser skipper = null, out AttrType attr = AttrType.init)
+	{
+		auto fs = s;
+		if (skipper !is null)
+			while (skipper(s)) {}
+		if (s.length < str.length || s[0 .. str.length] != str)
+		{
+			s = fs;
+			return false;
+		}
+		attr = s[0 .. str.length];
+		s = s[str.length .. $];
+		return true;
+	}
+}
+
+StringParser string_ (string s)
+{
+	return new StringParser(s);
+}
+
+/++
+ + SequenceParser family
+ +/
 
 template attrTypes (ParsersTypes ...)
 {
@@ -150,16 +275,6 @@ template attrTypes (ParsersTypes ...)
 template attrType (ParserType)
 {
 	alias ParserType.AttrType attrType;
-}
-
-bool anyIf (Params ...) (ref string s, Parser skipper, Params[0 .. $/2] params, out Params[$/2 .. $] aparams)
-{
-	/+
-	static if (Parsers.length > 1)
-		return parsers[0](s, skipper, attrs[0]) && anyIf!(Parsers[1 .. $])(s, skipper, parsers[1 .. $], attrs[1 .. $]);
-	else
-		return parsers[0](s, skipper, attrs[0]);+/
-	return true;
 }
 
 class SequenceParser (ParsersTypes ...)
@@ -180,12 +295,34 @@ class SequenceParser (ParsersTypes ...)
 			auto fs = s;
 			if (skipper !is null)
 				while (skipper(s)) {}
-			if (!anyIf!(ParsersTypes, attrTypes!(ParsersTypes))(s, skipper, parsers, attrs))
+			foreach (i, ParserType; ParsersTypes)
 			{
+				if (!parsers[i](s, skipper, attrs[i]))
+					goto NoMatch;
+			}
+			return true;
+			NoMatch:
 				s = fs;
 				return false;
+		}
+		bool opCall (ref string s, out attrTypes!(ParsersTypes) attrs)
+		{
+			return this.opCall(s, null, attrs);
+		}
+		bool opCall (ref string s, Parser skipper = null)
+		{
+			auto fs = s;
+			if (skipper !is null)
+				while (skipper(s)) {}
+			foreach (i, ParserType; ParsersTypes)
+			{
+				if (!parsers[i](s, skipper))
+					goto NoMatch;
 			}
-			return true;	
+			return true;
+			NoMatch:
+				s = fs;
+				return false;
 		}
 		/+
 		bool opCall (s, skipper, char c, uint u, byte b)
@@ -198,6 +335,77 @@ class SequenceParser (ParsersTypes ...)
 			s = fs;
 			return false;
 		}+/
+}
+
+unittest
+{
+	new Test!(SequenceParser, "!CharParser,CharParser,CharParser")(
+	{
+		auto p = char_('A') >> char_('B') >> char_('C');
+		auto s = "ABCDEF";
+		char c1, c2, c3;
+		assert(p(s, c1, c2, c3));
+		assert('A' == c1);
+		assert('B' == c2);
+		assert('C' == c3);
+		assert("DEF" == s);
+		s = "ABCDE";
+		assert(p(s));
+		assert("DE" == s);
+	});
+	new Test!(SequenceParser, "!(StringParser,CharParser,NumericParser,RepeatParser!CharParser)")(
+	{
+		auto p = string_("ABC") >> char_('D') >> uint_ >> +char_('Z');
+		auto s = "ABCD456ZZend";
+		string s2;
+		char c1;
+		char[] s3;
+		uint u;
+		assert(p(s, null, s2, c1, u, s3));
+		assert("end" == s);
+		assert("ABC" == s2);
+		assert('D' == c1);
+		assert(456 == u);
+		assert("ZZ" == s3);
+	});
+}
+
+/++
+ + ContextParser
+ +/
+
+
+/++
+ + ActionParser family
+ +/
+class ActionParser (ParserType, ActionType)
+{
+	ParserType parser;
+	ActionType act;
+	this (ParserType parser, ActionType act)
+	{
+		this.act = act;
+		this.parser;
+	}
+}
+
+template FunctionActionParser (ParserType)
+{
+	alias ActionParser!(ParserType, void function (ParserType.AttrType)) FunctionActionParser;
+}
+
+unittest
+{
+	uint value;
+	void setValueTo (uint v)
+	{
+		value = v;
+	}
+	auto p = uint_[&setValueTo];
+	auto s = "535";
+	assert(p(s));
+	assert("" == s);
+	assert(535 == value);
 }
 
 static
@@ -222,18 +430,6 @@ static this ()
 	int_ = new NumericParser!int();
 	short_ = new NumericParser!short();
 	byte_ = new NumericParser!byte();
-}
-
-unittest
-{
-	auto p = char_('A') >> char_('B') >> char_('C');
-	auto s = "ABCDEF";
-	char c1, c2, c3;
-	assert(p(s, null, c1, c2, c3));
-	assert('A' == c1);
-	assert('B' == c2);
-	assert('C' == c3);
-	assert("DEF" == s);
 }
 
 /+
