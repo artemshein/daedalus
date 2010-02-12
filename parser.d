@@ -4,9 +4,30 @@ import std.stdio, std.stdarg, std.conv, std.array, std.typetuple;
 version(unittest) import qc;
 debug import std.string;
 
-class Parser
+class Parser (Derived)
 {
+	alias isParser true; 
 	bool opCall (ref string s, Parser skipper = null) {return false;}
+	const ref Derived derived ()
+	{
+		return *cast(const ref Derived)&this;
+	}
+}
+
+class PrimitiveParser (Derived): Parser!(Derived)
+{
+}
+
+class NaryParser (Derived): Parser!(Derived)
+{
+}
+
+class UnaryParser (Derived): Parser!(Derived)
+{
+}
+
+class BinaryParser (Derived): Parser!(Derived)
+{
 }
 
 /++
@@ -385,13 +406,18 @@ class ActionParser (ParserType, ActionType)
 	this (ParserType parser, ActionType act)
 	{
 		this.act = act;
-		this.parser;
+		this.parser = parser;
 	}
 }
 
 template FunctionActionParser (ParserType)
 {
 	alias ActionParser!(ParserType, void function (ParserType.AttrType)) FunctionActionParser;
+}
+
+template DelegateActionParser (ParserType)
+{
+	alias ActionParser!(ParserType, void delegate (ParserType.AttrType)) DelegateActionParser;
 }
 
 unittest
