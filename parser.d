@@ -2,30 +2,9 @@ module parser;
 
 debug = parser;
 
-import std.stdio, std.stdarg, std.conv, std.array, std.typetuple, std.variant;
+import std.conv, std.array, std.variant;
 version(unittest) import qc;
-debug(parser) import std.string;
-
-/+
-debug
-{
-	class Debugger
-	{
-		alias void function (string, T[]) beforeAction;
-		alias void function (string, T[], int) afterAction;
-		static uint depth = 0;
-		static void beginOut (string parserName, T[] stream)
-		{
-			writefln("%srule (%s) \"%s\"", repeat(" ", depth), parserName, stream[0..(($ > 5)? 5 : $)]);
-			depth += 1;
-		}
-		static void endOut (string parserName, T[] stream, int result)
-		{
-			depth -= 1;
-			writefln("%s%srule (%s) \"%s\"", repeat(" ", depth), result >= 0? "/" : "#", parserName, stream[0..((result > 0)? result : 0)]);
-		}
-	}
-}+/
+debug(parser) import std.string, std.stdio;
 
 /++
  + Parser
@@ -86,8 +65,8 @@ abstract class Parser
 	}+/
 		bool opCall (ref string s, Parser skipper = null) { return parse(s, skipper); }
 		bool opCall (ref string s, out Variant v, Parser skipper = null) { return parse(s, v, skipper); }
-		//Parser opNeg () { return new NotParser(this); }
-		//AndParser opAdd (Parser p) { return new AndParser([this, p]); }
+		Parser opNeg () { return new NotParser(this); }
+		AndParser opAdd (Parser p) { return new AndParser([this, p]); }
 		RepeatParser opSlice (uint from, uint to = 0) { return new RepeatParser(this, from, to); }
 		RepeatParser opStar () { return new RepeatParser(this, 0, 0); }
 		RepeatParser opCom () { return new RepeatParser(this, 0, 1); }
@@ -95,7 +74,7 @@ abstract class Parser
 		SequenceParser opShr (Parser p) { return new SequenceParser([this, p]); }
 		SequenceParser opShr (char ch) { return new SequenceParser([this, new CharParser(ch)]); }
 		SequenceParser opShr_r (char ch) { return new SequenceParser([cast(Parser)new CharParser(ch), this]); }
-		//AndParser opSub (Parser p) { return new AndParser([this, -p]); }
+		AndParser opSub (Parser p) { return new AndParser([this, -p]); }
 		OrParser opOr (Parser p) { return new OrParser([this, p]); }
 		OrParser opOr (char ch) { return new OrParser([this, new CharParser(ch)]); }
 		Parser opIndex (Action) (Action act) { return new ActionParser!(Action)(this, act); }
@@ -842,47 +821,88 @@ class RepeatParser: UnaryParser
 		s = "		\r\n\nXXXXX";
 		assert(p3(s, space));
 	}
-}/+
+}
 
-class AndParser: NaryParser!(string)
+class AndParser: NaryParser
 {
-	this (Parser[] parsers)
-	{
-		this.parsers = parsers;
-	}
-	bool parse (ref string s, Parser skipper = null)
-	{
-		auto fs = s;
-		foreach (p; parsers)
+	public:
+		this (Parser[] parsers)
 		{
-			if (!p(s, skipper))
+			this.parsers = parsers;
+		}
+		bool parse (ref string s, Parser skipper = null)
+		{
+			auto fs = s;
+			uint max = 0;
+			foreach (p; parsers)
 			{
 				s = fs;
-				return false;
+				if (!p(s, skipper))
+				{
+					s = fs;
+					return false;
+				}
+				auto matchLen = fs.length - s.length; 
+				if (matchLen > max)
+					max = matchLen;
 			}
+			s = fs[max .. $];
+			return true;
 		}
-		return true;
-	}
+		bool parse (ref string s, out Variant v, Parser skipper = null)
+		{
+			auto fs = s;
+			uint max = 0;
+			Variant[] res;
+			res.length = parsers.length;
+			foreach (i, p; parsers)
+			{
+				s = fs;
+				if (!p(s, res[i], skipper))
+				{
+					s = fs;
+					return false;
+				}
+				auto matchLen = fs.length - s.length; 
+				if (matchLen > max)
+					max = matchLen;
+			}
+			v = res;
+			s = fs[max .. $];
+			return true;
+		}
+
 	unittest
 	{
 		scope t = new Test!AndParser();
 		auto p = char_('A') + string_("ABC");
-		assert(!p("", space));
-		assert(!p("A", space));
-		assert(3 == p("ABC", space));
-		assert(3 == p("ABCDE", space));
-		assert(6 == p("\v\r\nABCDE", space));
+		auto s = "";
+		assert(!p(s, space));
+		s = "A";
+		assert(!p(s, space));
+		s = "ABC";
+		assert(p(s, space));
+		s = "ABCDE";
+		assert(p(s, space));
+		s = "\v\r\nABCDE";
+		assert(p(s, space));
 		auto p2 = string_("ABC") - string_("ABCDE");
-		assert(!p2("", space));
-		assert(3 == p2("ABC", space));
-		assert(3 == p2("ABCD", space));
-		assert(4 == p2("\rABCD", space));
-		assert(!p2("ABCDE", space));
-		assert(!p2("ABCDEF", space));
-		assert(!p2("\r\nABCDEF", space));
+		s = "";
+		assert(!p2(s, space));
+		s = "ABC";
+		assert(p2(s, space));
+		s = "ABCD";
+		assert(p2(s, space));
+		s = "\rABCD";
+		assert(p2(s, space));
+		s = "ABCDE";
+		assert(!p2(s, space));
+		s = "ABCDEF";
+		assert(!p2(s, space));
+		s = "\r\nABCDEF";
+		assert(!p2(s, space));
 	}
 }
-+/
 
 /++
  + OrParser
@@ -934,12 +954,20 @@ class OrParser: NaryParser
 		assert(!p(s, space));
 	}
 }
-/+
+
 class NotParser: UnaryParser
 {
 	this (Parser parser)
 	{
 		this.parser = parser;
+	}
+	bool match (ref string s)
+	{
+		return !parser.match(s);
+	}
+	bool match (ref string s, out Variant v)
+	{
+		return !parser.match(s, v);
 	}
 	bool parse (ref string s, Parser skipper = null)
 	{
@@ -949,6 +977,19 @@ class NotParser: UnaryParser
 			s = fs;
 			return false;
 		}
+		s = s[$ > 0? 1 : 0 .. $];
+		return true;
+	}
+	bool parse (ref string s, out Variant v, Parser skipper = null)
+	{
+		auto fs = s;
+		if (parser(s, skipper))
+		{
+			s = fs;
+			return false;
+		}
+		if (s.length)
+			v = s[0];
 		s = s[$ > 0? 1 : 0 .. $];
 		return true;
 	}
@@ -962,14 +1003,18 @@ class NotParser: UnaryParser
 		auto ap = char_('A') + string_("ABC");
 		auto p = -ap;
 		assert(-p is ap);
-		assert(0 == p("", space));
-		assert(1 == p("A", space));
-		assert(3 == p("\r A", space));
-		assert(!p("ABC", space));
-		assert(!p("ABCDE", space));
+		auto s = "";
+		assert(p(s, space));
+		s = "A";
+		assert(p(s, space));
+		s = "\r A";
+		assert(p(s, space));
+		s = "ABC";
+		assert(!p(s, space));
+		s = "ABCDE";
+		assert(!p(s, space));
 	}
 }
-+/
 
 /++
  + RangeParser
@@ -1031,6 +1076,55 @@ abstract class ContextParser: UnaryParser
 		this.parser = parser;
 		return &this;
 	}
+}
+
+/++
+ + LazyParser
+ +/
+
+class LazyParser: Parser
+{
+	protected:
+		Parser* parser;
+	public:
+		this (Parser* parser)
+		{
+			this.parser = parser;
+		}
+		bool match (ref string s)
+		{
+			return parser.match(s);
+		}
+		bool match (ref string s, out Variant v)
+		{
+			return parser.match(s, v);
+		}
+		bool parse (ref string s, Parser skipper = null)
+		{
+			return parser.parse(s, skipper);
+		}
+		bool parse (ref string s, out Variant v, Parser skipper = null)
+		{
+			return parser.parse(s, v, skipper);
+		}
+
+	unittest
+	{
+		scope t = new Test!LazyParser();
+		Parser p = char_('A');
+		auto p2 = lazy_(&p) >> char_('C');
+		auto s = "AC";
+		assert(p2(s));
+		s = "ABC";
+		assert(!p2(s));
+		p = char_('A') >> char_('B');
+		assert(p2(s));
+	}
+}
+
+LazyParser lazy_ (Parser* p)
+{
+	return new LazyParser(p);
 }
 
 /+
@@ -1125,7 +1219,7 @@ static this ()
 	alnum = alpha | digit;
 	anychar = range(0, 255);
 	end = new EndParser();
-	eol = ('\n' >> ~char_('\r')) | ('\r' >> ~char_('\n'));
+	eol = char_('\n') | ('\r' >> ~char_('\n'));
 	auto e = (char_('e') | 'E') >> ~(char_('+') | '-') >> +digit;
 	byte_ = new PrimitiveParser!(byte)();
 	ubyte_ = new PrimitiveParser!(ubyte)();
@@ -1148,6 +1242,10 @@ static this ()
 		traceParser(uint_p, "uint_p");
 	}*/
 }
+
+/++
+ + Unittest
+ +/
 
 unittest
 {
@@ -1212,4 +1310,52 @@ unittest
 		s = "";
 		assert(!eol(s));
 	});
+}
+
+/++
+ + Debugging
+ +/
+
+debug(parser)
+{
+	class ParseTracer: UnaryParser
+	{
+		protected:
+			static uint depth;
+			string name;
+			void writeBeginOut (string stream)
+			{
+				writefln("%srule (%s) \"%s\"", repeat(" ", depth), name, stream[0 .. ($ > 5)? 5 : $]);
+				++depth;
+			}
+			void writeEndOut (string stream, bool result)
+			{
+				--depth;
+				writefln("%s%srule (%s) \"%s\"", repeat(" ", depth), result? "/" : "#", name, stream[0 .. ($ > 5)? 5 : $]);
+			}
+		public:
+			this (Parser parser, string name)
+			{
+				this.parser = parser;
+				this.name = name;
+			}
+			bool match (ref string s)
+			{
+				writeBeginOut(s);
+				auto res = parser.match(s);
+				writeEndOut(s, res);
+				return res;
+			}
+			bool match (ref string s, out Variant v)
+			{
+				writeBeginOut(s);
+				auto res = parser.match(s, v);
+				writeEndOut(s, res);
+				return res;
+			}
+	}
+	ParseTracer trace (Parser p, string name)
+	{
+		return new ParseTracer(p, name);
+	}
 }

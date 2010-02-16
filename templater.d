@@ -2,7 +2,7 @@ module templater;
 
 debug = templater;
 
-import std.variant, std.file;
+import std.variant, std.file, std.conv;
 import http.wsapi : WsApi;
 import parser;
 debug(templater) import std.stdio;
@@ -42,23 +42,19 @@ class Tornado: Templater
 {
 	protected:
 		abstract class TplElement
-		{	
-			public:
-				uint offset;
-				this (uint offset)
-				{
-					this.offset = offset;
-				}
+		{
 		}
 		class TplContent: TplElement
 		{
 			public:
 				string content;
-				this (string content, uint offset = 0)
+				this (string content)
 				{
-					super(offset);
 					this.content = content;
 				}
+		}
+		class TplIfElement: TplElement
+		{
 		}
 		class IfStatementParser: ContextParser
 		{
@@ -89,6 +85,7 @@ class Tornado: Templater
 							;
 					}
 				}
+				TplIfElement element;
 			public:
 				this ()
 				{
@@ -96,16 +93,17 @@ class Tornado: Templater
 					auto endIfStatement = new EndIfStatementParser();
 					auto expression = space;
 					parser
-						= doBlockBegin
+						= (doBlockBegin
 						>> *space
 						>> string_("if")
 						>> +space
-						>> expression
+						//>> expression
 						>> *space
 						>> doBlockEnd
-						>> script
+						>> lazy_(&script)
 						>> ~(elseStatement >> script)
 						>> endIfStatement
+						)[{ element = new TplIfElement(); }]
 						;
 				}
 		}
@@ -114,8 +112,11 @@ class Tornado: Templater
 			public:
 				TplElement[] elements;
 				uint elsCnt;
+				uint contentBlockCnt;
+				char[] contentBlock;
 				void appendContent (char ch)
 				{
+					debug(templater) writefln("Appending %s", ch);
 					if (contentBlockCnt >= contentBlock.length)
 						contentBlock.length = contentBlock.length * 2 + 1;
 					contentBlock[contentBlockCnt++] = ch;
@@ -140,10 +141,11 @@ class Tornado: Templater
 					parser
 						= (
 						*	( comment
-							| ifStatement
+							| ifStatement[{ appendElement(ifStatement.element); }]
 							| anychar[&appendContent]
 							)
-						)[{ closeContentBlock(); elements.length = elsCnt; }];
+						)[{ closeContentBlock; elements.length = elsCnt; }]
+						;
 				}
 				bool parse (ref string s, Parser skipParser = null)
 				{
@@ -161,14 +163,15 @@ class Tornado: Templater
 			super(tplsDirs, ws);
 			doBlockBegin = string_("{%");
 			doBlockEnd = string_("%}");
+			ifStatement = trace(new IfStatementParser(), "ifStatement");
 			script = new ScriptParser();
-			ifStatement = new IfStatementParser();
 		}
 		string fetchString (string s)
 		{
 			if (!script(s) || s.length)
 				throw new Exception("invalid template");
-			return executeScript(parser.elements);
+			debug(templater) writefln("Elements.length = %d", script.elements.length);
+			return to!(string)(script.elements);//executeScript(parser.elements);
 		}
 		bool assign (string, Variant) {return true;}
 }
