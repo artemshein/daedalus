@@ -12,57 +12,7 @@ debug(parser) import std.string, std.stdio;
 
 abstract class Parser
 {
-	/+protected:
-		static MatchLen matchSkipParser (string s, Parser skipParser)
-		{
-			auto res = NoMatch;
-			while (true)
-			{
-				auto res2 = skipParser(s);
-				if (NoMatch != res2)
-				{
-					s = s[res2 .. $];
-					res = (NoMatch == res)? res2 : res + res2;
-				}
-				else
-					break;
-			}
-			return res;
-		}
-		uint offset;+/
 	public:
-	/+alias void function (string) matchAction;
-	alias void delegate (string) matchDelegate;
-	alias void function (string, T[]) beforeAction;
-	alias void function (string, T[], int) afterAction;+/
-	/+debug
-	{
-		private beforeAction[] beforeActions;
-		private afterAction[] afterActions;
-		private string name;
-		string getName () { return name; }
-		Parser!(T) setName (string n) { name = n; return this; }
-		Parser!(T) addBeforeAction (beforeAction action) { beforeActions.length = beforeActions.length + 1; beforeActions[$-1] = action; return this; }
-		Parser!(T) addAfterAction (afterAction action) { afterActions.length = afterActions.length + 1; afterActions[$-1] = action; return this; }
-		void performBeforeActions (T[] stream)
-		{
-			foreach (action; beforeActions)
-				action(name, stream);
-		}
-		void performAfterActions (T[] stream, int result)
-		{
-			foreach (action; afterActions)
-				action(name, stream, result);
-		}
-		void trace (T[] name)
-		{
-			this.name = name;
-			addBeforeAction(&Debugger!(T).beginOut);
-			addAfterAction(&Debugger!(T).endOut);
-			addBeforeAction(&Debugger!(T).beginOut);
-			addAfterAction(&Debugger!(T).endOut);
-		}
-	}+/
 		bool opCall (ref string s, Parser skipper = null) { return parse(s, skipper); }
 		bool opCall (ref string s, out Variant v, Parser skipper = null) { return parse(s, v, skipper); }
 		Parser opNeg () { return new NotParser(this); }
@@ -72,34 +22,19 @@ abstract class Parser
 		RepeatParser opCom () { return new RepeatParser(this, 0, 1); }
 		RepeatParser opPos () { return new RepeatParser(this, 1, 0); }
 		SequenceParser opShr (Parser p) { return new SequenceParser([this, p]); }
-		SequenceParser opShr (char ch) { return new SequenceParser([this, new CharParser(ch)]); }
-		SequenceParser opShr_r (char ch) { return new SequenceParser([cast(Parser)new CharParser(ch), this]); }
+		SequenceParser opShr (char ch) { return this >> char_(ch); }
+		SequenceParser opShr (string str) { return this >> string_(str); }
+		SequenceParser opShr_r (char ch) { return char_(ch) >> this; }
+		SequenceParser opShr_r (string str) { return string_(str) >> this; }
 		AndParser opSub (Parser p) { return new AndParser([this, -p]); }
 		OrParser opOr (Parser p) { return new OrParser([this, p]); }
 		OrParser opOr (char ch) { return new OrParser([this, new CharParser(ch)]); }
+		SequenceParser opMod (char ch) { return this % char_(ch); }
+		SequenceParser opMod (string str) { return this % string_(str); }
+		SequenceParser opMod (Parser p) { return this >> *(p >> this); };
 		Parser opIndex (Action) (Action act) { return new ActionParser!(Action)(this, act); }
-		/+
-		Parser opIndex (void function () act) { return new VoidFunctionActionParser(this, act); }
-		Parser opIndex (void delegate () act) { return new VoidDelegateActionParser(this, act); }
-		Parser opIndex (void function (char) act) { return new FunctionActionParser!char(this, act); }
-		Parser opIndex (void delegate (char) act) { return new DelegateActionParser!char(this, act); }
-		Parser opIndex (void function (string) act) { return new FunctionActionParser!string(this, act); }
-		Parser opIndex (void delegate (string) act) { return new DelegateActionParser!string(this, act); }
-		Parser opIndex (void function (int) act) { return new FunctionActionParser!int(this, act); }
-		Parser opIndex (void delegate (int) act) { return new DelegateActionParser!int(this, act); }
-		Parser opIndex (void function (uint) act) { return new FunctionActionParser!uint(this, act); }
-		Parser opIndex (void delegate (uint) act) { return new DelegateActionParser!uint(this, act); }
-		Parser opIndex (void function (double) act) { return new FunctionActionParser!double(this, act); }
-		Parser opIndex (void delegate (double) act) { return new DelegateActionParser!double(this, act); }
-		+/
-		bool match (ref string s)
-		{
-			return true;
-		}
-		bool match (ref string s, out Variant v)
-		{
-			return true;
-		}
+		abstract bool match (ref string s);
+		abstract bool match (ref string s, out Variant v);
 		bool parse (ref string s, Parser skipper = null)
 		{
 			auto fs = s;
@@ -124,6 +59,54 @@ abstract class Parser
 			}
 			return true;
 		}
+	debug(parser):
+		protected:
+			void function (Parser, string)[] beforeActions;
+			void function (Parser, string, bool)[] afterActions;
+			string name;
+			static void writeBeginTrace (Parser p, string s)
+			{
+				writefln("%srule (%s) \"%s\"", repeat("  ", p.depth), p.name, s[0 .. ($ > 5)? 5 : $]);
+				++p.depth;
+			}
+			static void writeEndTrace (Parser p, string s, bool result)
+			{
+				--p.depth;
+				writefln("%s%srule (%s) \"%s\"", repeat("  ", p.depth), result? "/" : "#", p.name, s[0 .. ($ > 5)? 5 : $]);
+			}
+			Parser doBeforeActions (string s)
+			{
+				foreach (action; beforeActions)
+					action(this, s);
+				return this;
+			}
+			Parser doAfterActions (string s, bool result)
+			{
+				foreach (action; afterActions)
+					action(this, s, result);
+				return this;
+			}
+			Parser addBeforeAction (void function (string, string) action)
+			{
+				beforeActions.length += 1;
+				beforeActions[$ - 1] = action;
+				return this;
+			}
+			Parser addAfterAction (void function (string, string, bool) action)
+			{
+				afterActions.length += 1;
+				afterActions[$ - 1] = action;
+				return this;
+			}
+		public:
+			static uint depth;
+			Parser trace (string name)
+			{
+				this.name = name;
+				addBeforeAction(&writeBeginTrace);
+				addAfterAction(&writeEndTrace);
+				return this;
+			}
 }
 
 class UnaryParser: Parser
@@ -173,117 +156,137 @@ class NaryParser: Parser
 
 class ActionParser (Action): UnaryParser
 {
-	Action action;
-	this (Parser parser, Action action)
-	{
-		this.parser = parser;
-		this.action = action;
-	}
-	bool parse (ref string s, Parser skipper = null)
-	{
-		auto fs = s;
-		if (!parser.parse(s, skipper))
-			return false;
-		auto sVal = fs[0 .. $ - s.length];
-		static if (is(Action : void function (char)) || is(Action : void delegate (char)))
-			action(fs[0]);
-		else static if (is(Action : void function (string)) || is(Action : void delegate (string)))
-			action(to!(string)(sVal));
-		else static if (is(Action : void function (byte)) || is(Action : void delegate (byte)))
-			action(to!(byte)(sVal));
-		else static if (is(Action : void function (ubyte)) || is(Action : void delegate (ubyte)))
-			action(to!(ubyte)(sVal));
-		else static if (is(Action : void function (short)) || is(Action : void delegate (short)))
-			action(to!(short)(sVal));
-		else static if (is(Action : void function (ushort)) || is(Action : void delegate (ushort)))
-			action(to!(ushort)(sVal));
-		else static if (is(Action : void function (int)) || is(Action : void delegate (int)))
-			action(to!(int)(sVal));
-		else static if (is(Action : void function (uint)) || is(Action : void delegate (uint)))
-			action(to!(uint)(sVal));
-		else static if (is(Action : void function (long)) || is(Action : void delegate (long)))
-			action(to!(long)(sVal));
-		else static if (is(Action : void function (ulong)) || is(Action : void delegate (ulong)))
-			action(to!(ulong)(sVal));
-		else static if (is(Action : void function (float)) || is(Action : void delegate (float)))
-			action(to!(float)(sVal));
-		else static if (is(Action : void function (double)) || is(Action : void delegate (double)))
-			action(to!(double)(sVal));
-		return true;
-	}
-	bool parse (ref string s, out Variant v, Parser skipper = null)
-	{
-		auto fs = s;
-		if (!parser.parse(s, skipper))
-			return false;
-		auto sVal = fs[0 .. $ - s.length];
-		static if (is(Action : void function (char)) || is (Action : void delegate (char)))
+	protected:
+		Action action;
+
+	public:
+		this (Parser parser, Action action)
 		{
-			v = fs[0];
-			action(fs[0]);
+			this.parser = parser;
+			this.action = action;
 		}
-		else static if (is(Action : void function (string)) || is (Action : void delegate (string)))
+		bool parse (ref string s, Parser skipper = null)
 		{
-			v = sVal;
-			action(sVal);
+			auto fs = s;
+			if (!super.parse(s, skipper))
+				return false;
+			auto sVal = fs[0 .. $ - s.length];
+			static if (is(Action : void function ()) || is(Action : void delegate ()))
+				action();
+			else static if (is(Action : void function (char)) || is(Action : void delegate (char)))
+				action(fs[0]);
+			else static if (is(Action : void function (string)) || is(Action : void delegate (string)))
+				action(to!(string)(sVal));
+			else static if (is(Action : void function (byte)) || is(Action : void delegate (byte)))
+				action(to!(byte)(sVal));
+			else static if (is(Action : void function (ubyte)) || is(Action : void delegate (ubyte)))
+				action(to!(ubyte)(sVal));
+			else static if (is(Action : void function (short)) || is(Action : void delegate (short)))
+				action(to!(short)(sVal));
+			else static if (is(Action : void function (ushort)) || is(Action : void delegate (ushort)))
+				action(to!(ushort)(sVal));
+			else static if (is(Action : void function (int)) || is(Action : void delegate (int)))
+				action(to!(int)(sVal));
+			else static if (is(Action : void function (uint)) || is(Action : void delegate (uint)))
+				action(to!(uint)(sVal));
+			else static if (is(Action : void function (long)) || is(Action : void delegate (long)))
+				action(to!(long)(sVal));
+			else static if (is(Action : void function (ulong)) || is(Action : void delegate (ulong)))
+				action(to!(ulong)(sVal));
+			else static if (is(Action : void function (float)) || is(Action : void delegate (float)))
+				action(to!(float)(sVal));
+			else static if (is(Action : void function (double)) || is(Action : void delegate (double)))
+				action(to!(double)(sVal));
+			else
+				static assert(false, "not implemented");
+			return true;
 		}
-		else static if (is(Action : void function (byte)) || is (Action : void delegate (byte)))
+		bool parse (ref string s, out Variant v, Parser skipper = null)
 		{
-			v = sVal;
-			action(to!(byte)(sVal));
+			auto fs = s;
+			if (!super.parse(s, skipper))
+				return false;
+			auto sVal = fs[0 .. $ - s.length];
+			static if (is(Action : void function ()) || is(Action : void delegate ()))
+			{
+				action();
+			}
+			else static if (is(Action : void function (char)) || is(Action : void delegate (char)))
+			{
+				v = fs[0];
+				action(fs[0]);
+			}
+			else static if (is(Action : void function (string)) || is(Action : void delegate (string)))
+			{
+				v = sVal;
+				action(sVal);
+			}
+			else static if (is(Action : void function (byte)) || is(Action : void delegate (byte)))
+			{
+				v = sVal;
+				action(to!(byte)(sVal));
+			}
+			else static if (is(Action : void function (ubyte)) || is(Action : void delegate (ubyte)))
+			{
+				v = sVal;
+				action(to!(ubyte)(sVal));
+			}
+			else static if (is(Action : void function (short)) || is(Action : void delegate (short)))
+			{
+				v = sVal;
+				action(to!(short)(sVal));
+			}
+			else static if (is(Action : void function (ushort)) || is(Action : void delegate (ushort)))
+			{
+				v = sVal;
+				action(to!(ushort)(sVal));
+			}
+			else static if (is(Action : void function (int)) || is(Action : void delegate (int)))
+			{
+				v = sVal;
+				action(to!(int)(sVal));
+			}
+			else static if (is(Action : void function (uint)) || is(Action : void delegate (uint)))
+			{
+				v = sVal;
+				action(to!(uint)(sVal));
+			}
+			else static if (is(Action : void function (long)) || is(Action : void delegate (long)))
+			{
+				v = sVal;
+				action(to!(long)(sVal));
+			}
+			else static if (is(Action : void function (ulong)) || is(Action : void delegate (ulong)))
+			{
+				v = sVal;
+				action(to!(ulong)(sVal));
+			}
+			else static if (is(Action : void function (float)) || is(Action : void delegate (float)))
+			{
+				v = sVal;
+				action(to!(float)(sVal));
+			}
+			else static if (is(Action : void function (double)) || is(Action : void delegate (double)))
+			{
+				v = sVal;
+				action(to!(double)(sVal));
+			}
+			else
+				static assert(false, "not implemented");
+			return true;
 		}
-		else static if (is(Action : void function (ubyte)) || is (Action : void delegate (ubyte)))
+		ActionParser!(Action) opIndex (Action action)
 		{
-			v = sVal;
-			action(to!(ubyte)(sVal));
+			this.action = action;
+			return this;
 		}
-		else static if (is(Action : void function (short)) || is (Action : void delegate (short)))
+
+	debug(parser):
+		Parser trace (string name)
 		{
-			v = sVal;
-			action(to!(short)(sVal));
+			parser.trace(name);
+			return this;
 		}
-		else static if (is(Action : void function (ushort)) || is (Action : void delegate (ushort)))
-		{
-			v = sVal;
-			action(to!(ushort)(sVal));
-		}
-		else static if (is(Action : void function (int)) || is (Action : void delegate (int)))
-		{
-			v = sVal;
-			action(to!(int)(sVal));
-		}
-		else static if (is(Action : void function (uint)) || is (Action : void delegate (uint)))
-		{
-			v = sVal;
-			action(to!(uint)(sVal));
-		}
-		else static if (is(Action : void function (long)) || is (Action : void delegate (long)))
-		{
-			v = sVal;
-			action(to!(long)(sVal));
-		}
-		else static if (is(Action : void function (ulong)) || is (Action : void delegate (ulong)))
-		{
-			v = sVal;
-			action(to!(ulong)(sVal));
-		}
-		else static if (is(Action : void function (float)) || is (Action : void delegate (float)))
-		{
-			v = sVal;
-			action(to!(float)(sVal));
-		}
-		else static if (is(Action : void function (double)) || is (Action : void delegate (double)))
-		{
-			v = sVal;
-			action(to!(double)(sVal));
-		}
-		return true;
-	}
-	ActionParser!(Action) opIndex (Action action)
-	{	// ???
-		this.action = action;
-		return this;
-	}
 }
 
 unittest
@@ -363,98 +366,6 @@ unittest
 		assert((value - -2432.54e-2) < 0.01);
 	});
 }
-/+
-class FunctionActionParser (T): ActionParser!(void function (T))
-{
-	this (Parser parser, void function (T) action)
-	{
-		super(parser, action);
-	}
-	bool parse (out string s, Parser skipper = null)
-	{
-		auto res = match(s, skipParser);
-		if (NoMatch != res)
-			static if (is(T == char))
-				action(s[0]);
-			else
-				action(to!(T)(s[0 .. res]));
-		return res;
-	}
-}
-
-class VoidFunctionActionParser: ActionParser!(void function ())
-{
-	this (Parser parser, void function () action)
-	{
-		super(parser, action);
-	}
-	bool parse (ref string s, Parser skipper = null)
-	{
-		auto fs = s;
-		if (!parser(s))
-		{
-			s = fs;
-			return false;
-		}
-		action();
-		return true;
-	}
-}
-
-class DelegateActionParser (T): ActionParser!(void delegate (T))
-{
-	this (Parser parser, void delegate (T) action)
-	{
-		super(parser, action);
-	}
-	MatchLen parse (string s, Parser skipParser = null)
-	{
-		auto res = match(s, skipParser);
-		if (NoMatch != res)
-			static if (is(T == char))
-				action(s[0]);
-			else
-				action(to!(T)(s[0 .. res]));
-		return res;
-	}
-}
-
-class VoidDelegateActionParser: ActionParser!(void delegate ())
-{
-	this (Parser parser, void delegate () action)
-	{
-		super(parser, action);
-	}
-	bool parse (ref string s, Parser skipper = null)
-	{
-		auto fs = s;
-		if (!parser(s, skipper))
-		{
-			s = fs;
-			return false;
-		}
-		action();
-		return true;
-	}
-	unittest
-	{
-		scope t = new Test!VoidDelegateActionParser();
-		uint value;
-		void setValueTo5 ()
-		{
-			value = 5;
-		}
-		auto p = int_[&setValueTo5];
-		assert(!p("asc", space));
-		assert(0 == value);
-		assert(3 == p("234", space));
-		assert(5 == value);
-		value = 0;
-		assert(!p("asc", space));
-		assert(8 == p(" 	\r\n	234", space));
-		assert(5 == value);
-	}
-}+/
 
 /++
  + PrimitiveParser
@@ -462,30 +373,35 @@ class VoidDelegateActionParser: ActionParser!(void delegate ())
 
 class PrimitiveParser (Type): Parser
 {
-	protected:
 	public:
 		bool match (ref string s)
 		{
 			try
 			{
+				debug(parser) doBeforeActions(s);
 				std.conv.parse!(Type)(s);
 			}
 			catch
 			{
+				debug(parser) doAfterActions(s, false);
 				return false;
 			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		bool match (ref string s, out Variant v)
 		{
 			try
 			{
+				debug(parser) doBeforeActions(s);
 				v = std.conv.parse!(Type)(s);
 			}
 			catch
 			{
+				debug(parser) doAfterActions(s, false);
 				return false;
 			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 }
@@ -543,6 +459,7 @@ class CharParser: Parser
 {
 	protected:
 		char value;
+
 	public:
 		this (char v)
 		{
@@ -550,17 +467,27 @@ class CharParser: Parser
 		}
 		bool match (ref string s)
 		{
+			debug(parser) doBeforeActions(s);
 			if (0 == s.length || s[0] != value)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
 			s = s[1 .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool match (ref string s, out Variant v, Parser skipper = null)
+		bool match (ref string s, out Variant v)
 		{
+			debug(parser) doBeforeActions(s);
 			if (0 == s.length || s[0] != value)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
 			v = s[0];
 			s = s[1 .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -590,14 +517,24 @@ class EndParser: Parser
 	public:
 		bool match (ref string s)
 		{
+			debug(parser) doBeforeActions(s);
 			if (0 != s.length)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		bool match (ref string s, out Variant v)
 		{
+			debug(parser) doBeforeActions(s);
 			if (0 != s.length)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 	unittest
@@ -620,6 +557,7 @@ class StrParser: Parser
 {
 	protected:
 		string value;
+
 	public:
 		this (string v)
 		{
@@ -627,17 +565,27 @@ class StrParser: Parser
 		}
 		bool match (ref string s)
 		{
+			debug(parser) doBeforeActions(s);
 			if (s.length < value.length || s[0 .. value.length] != value)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
 			s = s[value.length .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		bool match (ref string s, out Variant v)
 		{
+			debug(parser) doBeforeActions(s);
 			if (s.length < value.length || s[0 .. value.length] != value)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
 			v = value;
 			s = s[value.length .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -667,31 +615,45 @@ class SequenceParser: NaryParser
 		{
 			this.parsers = parsers;
 		}
+		bool match (ref string s)
+		{
+			return parse(s);
+		}
+		bool match (ref string s, out Variant v)
+		{
+			return parse(s, v);
+		}
 		bool parse (ref string s, Parser skipper = null)
 		{
 			auto fs = s;
+			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
 			{
 				if (!p(s, skipper))
 				{
+					debug(parser) doAfterActions(s, false);
 					s = fs;
 					return false;
 				}
 			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
 		{
 			auto fs = s;
 			v = new Variant[](parsers.length);
+			debug(parser) doBeforeActions(s);
 			foreach (i, p; parsers)
 			{
 				if (!p(s, *v[i].peek!(Variant)(), skipper))
 				{
+					debug(parser) doAfterActions(s, false);
 					s = fs;
 					return false;
 				}
 			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		SequenceParser opShr (SequenceParser parser) { return new SequenceParser(parsers ~ parser.parsers); }
@@ -723,6 +685,7 @@ class RepeatParser: UnaryParser
 {
 	protected:
 		uint from, to;
+
 	public:
 		this (Parser parser, uint from, uint to = 0)
 		{
@@ -737,6 +700,7 @@ class RepeatParser: UnaryParser
 		{
 			auto fs = s;
 			uint counter;
+			debug(parser) doBeforeActions(s);
 			while (counter < to)
 			{
 				if (!parser(s, skipper))
@@ -745,9 +709,11 @@ class RepeatParser: UnaryParser
 			}
 			if (counter < from)
 			{
+				debug(parser) doAfterActions(s, false);
 				s = fs;
 				return false;
 			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
@@ -755,6 +721,7 @@ class RepeatParser: UnaryParser
 			auto fs = s;
 			uint counter;
 			Variant[] res;
+			debug(parser) doBeforeActions(s);
 			while (counter < to)
 			{
 				if (res.length <= counter)
@@ -769,9 +736,11 @@ class RepeatParser: UnaryParser
 			v = res;
 			if (counter < from)
 			{
+				debug(parser) doAfterActions(s, false);
 				s = fs;
 				return false;
 			}
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -830,15 +799,25 @@ class AndParser: NaryParser
 		{
 			this.parsers = parsers;
 		}
+		bool match (ref string s)
+		{
+			return parse(s);
+		}
+		bool match (ref string s, out Variant v)
+		{
+			return parse(s, v);
+		}
 		bool parse (ref string s, Parser skipper = null)
 		{
 			auto fs = s;
 			uint max = 0;
+			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
 			{
 				s = fs;
 				if (!p(s, skipper))
 				{
+					debug(parser) doAfterActions(s, false);
 					s = fs;
 					return false;
 				}
@@ -847,6 +826,7 @@ class AndParser: NaryParser
 					max = matchLen;
 			}
 			s = fs[max .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
@@ -855,11 +835,13 @@ class AndParser: NaryParser
 			uint max = 0;
 			Variant[] res;
 			res.length = parsers.length;
+			debug(parser) doBeforeActions(s);
 			foreach (i, p; parsers)
 			{
 				s = fs;
 				if (!p(s, res[i], skipper))
 				{
+					debug(parser) doAfterActions(s, false);
 					s = fs;
 					return false;
 				}
@@ -869,6 +851,7 @@ class AndParser: NaryParser
 			}
 			v = res;
 			s = fs[max .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -915,25 +898,43 @@ class OrParser: NaryParser
 		{
 			this.parsers = parsers;
 		}
+		bool match (ref string s)
+		{
+			return parse(s);
+		}
+		bool match (ref string s, out Variant v)
+		{
+			return parse(s, v);
+		}
 		bool parse (ref string s, Parser skipper = null)
 		{
 			auto fs = s;
+			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
 			{
 				if (p(s, skipper))
+				{
+					debug(parser) doAfterActions(s, true);
 					return true;
+				}
 			}
+			debug(parser) doAfterActions(s, false);
 			s = fs;
 			return false;
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
 		{
 			auto fs = s;
+			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
 			{
 				if (p(s, v, skipper))
+				{
+					debug(parser) doAfterActions(s, true);
 					return true;
+				}
 			}
+			debug(parser) doAfterActions(s, false);
 			s = fs;
 			return false;
 		}
@@ -972,25 +973,31 @@ class NotParser: UnaryParser
 	bool parse (ref string s, Parser skipper = null)
 	{
 		auto fs = s;
+		debug(parser) doBeforeActions(s);
 		if (parser(s, skipper))
 		{
+			debug(parser) doAfterActions(s, false);
 			s = fs;
 			return false;
 		}
 		s = s[$ > 0? 1 : 0 .. $];
+		debug(parser) doAfterActions(s, true);
 		return true;
 	}
 	bool parse (ref string s, out Variant v, Parser skipper = null)
 	{
 		auto fs = s;
+		debug(parser) doBeforeActions(s);
 		if (parser(s, skipper))
 		{
+			debug(parser) doAfterActions(s, false);
 			s = fs;
 			return false;
 		}
 		if (s.length)
 			v = s[0];
 		s = s[$ > 0? 1 : 0 .. $];
+		debug(parser) doAfterActions(s, true);
 		return true;
 	}
 	Parser opNeg ()
@@ -1032,17 +1039,27 @@ class RangeParser: Parser
 		}
 		bool match (ref string s)
 		{
+			debug(parser) doBeforeActions(s);
 			if (!s.length || s[0] < start || s[0] > end)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
 			s = s[1 .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		bool match (ref string s, out Variant v)
 		{
+			debug(parser) doBeforeActions(s);
 			if (!s.length || s[0] < start || s[0] > end)
+			{
+				debug(parser) doAfterActions(s, false);
 				return false;
+			}
 			v = s[0];
 			s = s[1 .. $];
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -1068,14 +1085,42 @@ class RangeParser: Parser
 /++
  + ContextParser
  +/
-
+/+
 abstract class ContextParser: UnaryParser
 {
-	ContextParser* opAssign (Parser parser)
-	{
-		this.parser = parser;
-		return &this;
-	}
+	public:
+		ContextParser* opAssign (Parser parser)
+		{
+			this.parser = parser;
+			return &this;
+		}
+	debug(parser):
+		public:
+			Parser trace (string name)
+			{
+				parser.trace(name);
+				return this;
+			}
+}+/
+
+class ContextParser (ContextType): UnaryParser
+{
+	public:
+		ContextType context;
+	debug(parser):
+		public:
+			ContextParser!(ContextType) trace (string name)
+			{
+				parser.trace(name);
+				return this;
+			}
+			bool parse (string s, ContextType context, Parser skipper = null)
+			{
+				auto oldContext = this.context;
+				scope(exit) this.context = oldContext;
+				this.context = context;
+				return parse(s, skipper);
+			}
 }
 
 /++
@@ -1093,19 +1138,75 @@ class LazyParser: Parser
 		}
 		bool match (ref string s)
 		{
-			return parser.match(s);
+			debug(parser)
+			{
+				doBeforeActions(s);
+				if (!parser.match(s))
+				{
+					doAfterActions(s, false);
+					return false;
+				}
+				doAfterActions(s, true);
+				return true;
+			}
+			else
+			{
+				return parser.match(s);
+			}
 		}
 		bool match (ref string s, out Variant v)
 		{
-			return parser.match(s, v);
+			debug(parser)
+			{
+				doBeforeActions(s);
+				if (!parser.match(s, v))
+				{
+					doAfterActions(s, false);
+					return false;
+				}
+				doAfterActions(s, true);
+				return true;
+			}
+			else
+			{
+				return parser.match(s, v);
+			}
 		}
 		bool parse (ref string s, Parser skipper = null)
 		{
-			return parser.parse(s, skipper);
+			debug(parser)
+			{
+				doBeforeActions(s);
+				if (!parser.parse(s, skipper))
+				{
+					doAfterActions(s, false);
+					return false;
+				}
+				doAfterActions(s, true);
+				return true;
+			}
+			else
+			{
+				return parser.parse(s, skipper);
+			}
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
 		{
-			return parser.parse(s, v, skipper);
+			debug(parser)
+			{
+				doBeforeActions(s);
+				if (!parser.parse(s, v, skipper))
+				{
+					doAfterActions(s, false);
+					return false;
+				}
+				doAfterActions(s, true);
+				return true;
+			}
+			else
+			{
+				return parser.parse(s, v, skipper);
+			}
 		}
 
 	unittest
@@ -1232,15 +1333,6 @@ static this ()
 	float_ = new PrimitiveParser!(float)();
 	double_ = new PrimitiveParser!(double)();
 	space = char_(' ') | '\t' | '\v' | eol;
-	/*debug
-	{
-		traceParser(end_p, "end_p");
-		traceParser(alpha_p, "alpha_p");
-		traceParser(alnum_p, "alnum_p");
-		traceParser(anychar_p, "anychar_p");
-		traceParser(eol_p, "eol_p");
-		traceParser(uint_p, "uint_p");
-	}*/
 }
 
 /++
@@ -1310,52 +1402,4 @@ unittest
 		s = "";
 		assert(!eol(s));
 	});
-}
-
-/++
- + Debugging
- +/
-
-debug(parser)
-{
-	class ParseTracer: UnaryParser
-	{
-		protected:
-			static uint depth;
-			string name;
-			void writeBeginOut (string stream)
-			{
-				writefln("%srule (%s) \"%s\"", repeat(" ", depth), name, stream[0 .. ($ > 5)? 5 : $]);
-				++depth;
-			}
-			void writeEndOut (string stream, bool result)
-			{
-				--depth;
-				writefln("%s%srule (%s) \"%s\"", repeat(" ", depth), result? "/" : "#", name, stream[0 .. ($ > 5)? 5 : $]);
-			}
-		public:
-			this (Parser parser, string name)
-			{
-				this.parser = parser;
-				this.name = name;
-			}
-			bool match (ref string s)
-			{
-				writeBeginOut(s);
-				auto res = parser.match(s);
-				writeEndOut(s, res);
-				return res;
-			}
-			bool match (ref string s, out Variant v)
-			{
-				writeBeginOut(s);
-				auto res = parser.match(s, v);
-				writeEndOut(s, res);
-				return res;
-			}
-	}
-	ParseTracer trace (Parser p, string name)
-	{
-		return new ParseTracer(p, name);
-	}
 }

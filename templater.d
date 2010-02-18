@@ -41,10 +41,43 @@ abstract class Templater
 class Tornado: Templater
 {
 	protected:
-		abstract class TplElement
+		/++
+		 + Execution
+		 +/
+		abstract class Expr
 		{
+			public:
+				abstract bool asBool ();
 		}
-		class TplContent: TplElement
+		class BoolExpr: Expr
+		{
+			public:
+				bool value;
+				this (bool value)
+				{
+					this.value = value;
+				}
+				bool asBool ()
+				{
+					return this.value;
+				}
+		}
+		class ExprParser: ContextParser!(BoolExpr)
+		{
+			public:
+				this ()
+				{
+					parser
+						= string_("true")[{ context = new BoolExpr(true); }]
+						| string_("false")[{ context = new BoolExpr(false); }]
+						;
+				}
+		}
+		abstract class TplEl
+		{
+			abstract string execute ();
+		}
+		class TplContent: TplEl
 		{
 			public:
 				string content;
@@ -52,126 +85,156 @@ class Tornado: Templater
 				{
 					this.content = content;
 				}
-		}
-		class TplIfElement: TplElement
-		{
-		}
-		class IfStatementParser: ContextParser
-		{
-			protected:
-				class ElseStatementParser: ContextParser
+				string execute ()
 				{
-					this ()
-					{
-						parser
-							= doBlockBegin
-							>> *space
-							>> string_("else")
-							>> *space
-							>> doBlockEnd
-							;
-					}
+					return this.content;
 				}
-				class EndIfStatementParser: ContextParser
+		}
+		class TplIfEl: TplEl
+		{
+			public:
+				Expr expr;
+				TplEl[] ifEls, elseEls;
+				this (Expr expr, TplEl[] ifEls, TplEl[] elseEls)
 				{
-					this ()
-					{
-						parser
-							= doBlockBegin
-							>> *space
-							>> string_("endif")
-							>> *space
-							>> doBlockEnd
-							;
-					}
+					this.expr = expr;
+					this.ifEls = ifEls;
+					this.elseEls = elseEls;
 				}
-				TplIfElement element;
+				string execute ()
+				{
+					auto res = "";
+					foreach (el; expr.asBool? ifEls : elseEls)
+						res ~= el.execute;
+					return res;
+				}
+		}
+		/++
+		 + Parsing
+		 +/
+		class IfStmtParser: ContextParser!(TplIfEl)
+		{
 			public:
 				this ()
 				{
-					auto elseStatement = new ElseStatementParser();
-					auto endIfStatement = new EndIfStatementParser();
-					auto expression = space;
+					auto elseStmt
+						= doBlockBgn
+						>> *space
+						>> string_("else")
+						>> *space
+						>> doBlockEnd
+						;
+					auto endIfStmt
+						= doBlockBgn
+						>> *space
+						>> string_("endif")
+						>> *space
+						>> doBlockEnd
+						;
+					auto expr = new ExprParser();
+					TplEl[] ifEls, elseEls;
 					parser
-						= (doBlockBegin
+						= (doBlockBgn
 						>> *space
 						>> string_("if")
 						>> +space
-						//>> expression
+						>> expr
 						>> *space
 						>> doBlockEnd
-						>> lazy_(&script)
-						>> ~(elseStatement >> script)
-						>> endIfStatement
-						)[{ element = new TplIfElement(); }]
+						>> lazy_(&script)[{ ifEls = script.context.els; }]
+						>> ~(elseStmt >> script[{ elseEls = script.context.els; }])
+						>> endIfStmt
+						)[{ context = new TplIfEl(expr.context, ifEls, elseEls); }]
 						;
 				}
 		}
-		class ScriptParser: ContextParser
+		class ScriptContext
 		{
-			public:
-				TplElement[] elements;
+			protected:
 				uint elsCnt;
 				uint contentBlockCnt;
 				char[] contentBlock;
+			public:
+				TplEl[] els;
+		}
+		class ScriptParser: ContextParser!(ScriptContext)
+		{
+			public:
 				void appendContent (char ch)
 				{
-					debug(templater) writefln("Appending %s", ch);
-					if (contentBlockCnt >= contentBlock.length)
-						contentBlock.length = contentBlock.length * 2 + 1;
-					contentBlock[contentBlockCnt++] = ch;
+					with (context)
+					{
+						if (contentBlockCnt >= contentBlock.length)
+							contentBlock.length = contentBlock.length * 2 + 1;
+						contentBlock[contentBlockCnt++] = ch;
+					}
 				}
 				void closeContentBlock ()
 				{
-					if (contentBlockCnt)
+					with (context) if (contentBlockCnt)
 					{
 						appendElement(new TplContent(contentBlock[0 .. contentBlockCnt].idup));
 						contentBlockCnt = 0;
 					}
 				}
-				void appendElement (TplElement el)
+				void appendElement (TplEl el)
 				{
-					if (elsCnt >= elements.length)
-						elements.length = elements.length * 2 + 1;
-					elements[elsCnt++] = el;
+					with (context)
+					{
+						if (elsCnt >= els.length)
+							els.length = els.length * 2 + 1;
+						els[elsCnt++] = el;
+					}
 				}
 				this ()
 				{
-					auto comment = string_("{#") >> *(-string_("#}")) >> string_("#}");
+					auto commentBlockBgn = string_("{#");
+					auto commentBlockEnd = string_("#}");
+					auto comment =  commentBlockBgn >> *(-commentBlockEnd) >> commentBlockEnd;
 					parser
 						= (
 						*	( comment
-							| ifStatement[{ appendElement(ifStatement.element); }]
-							| anychar[&appendContent]
+							| ifStmt[{ appendElement(ifStmt.context); }]
+							| (anychar - (doBlockBgn | commentBlockBgn))[&appendContent]
 							)
-						)[{ closeContentBlock; elements.length = elsCnt; }]
+						)[{ closeContentBlock; context.content.length = context.elsCnt; }]
 						;
 				}
 				bool parse (ref string s, Parser skipParser = null)
 				{
-					elsCnt = 0;
-					contentBlockCnt = 0;
-					return super.parse(s, skipParser);
+					context = new ScriptContext();
+					with (context)
+					{
+						elsCnt = 0;
+						contentBlockCnt = 0;
+					}
+					return super.parse(s, context, skipParser);
 				}
 		}
 		ScriptParser script;
-		IfStatementParser ifStatement;
-		Parser doBlockBegin, doBlockEnd;
+		IfStmtParser ifStmt;
+		Parser doBlockBgn, doBlockEnd;
+		string executeScript (TplEl[] els)
+		{
+			auto res = "";
+			foreach (el; els)
+				res ~= el.execute;
+			return res;
+		}
 	public:
 		this (string[] tplsDirs = null, WsApi ws = null)
 		{
 			super(tplsDirs, ws);
-			doBlockBegin = string_("{%");
+			doBlockBgn = string_("{%");
 			doBlockEnd = string_("%}");
-			ifStatement = trace(new IfStatementParser(), "ifStatement");
 			script = new ScriptParser();
+			ifStmt = new IfStmtParser();
 		}
 		string fetchString (string s)
 		{
 			if (!script(s) || s.length)
 				throw new Exception("invalid template");
-			debug(templater) writefln("Elements.length = %d", script.elements.length);
-			return to!(string)(script.elements);//executeScript(parser.elements);
+			return executeScript(script.els);
 		}
 		bool assign (string, Variant) {return true;}
 }
