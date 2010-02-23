@@ -2,7 +2,7 @@ module qc;
 
 import std.stdio;
 
-class Test (alias A, string B = "")
+scope class Test (alias A, string B = "")
 {
 	protected:
 		bool finalized;

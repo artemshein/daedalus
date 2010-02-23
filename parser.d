@@ -17,21 +17,27 @@ abstract class Parser
 		bool opCall (ref string s, out Variant v, Parser skipper = null) { return parse(s, v, skipper); }
 		Parser opNeg () { return new NotParser(this); }
 		AndParser opAdd (Parser p) { return new AndParser([this, p]); }
+		AndParser opAdd (Parser* p) { return new AndParser([this, lazy_(p)]); }
 		RepeatParser opSlice (uint from, uint to = 0) { return new RepeatParser(this, from, to); }
 		RepeatParser opStar () { return new RepeatParser(this, 0, 0); }
 		RepeatParser opCom () { return new RepeatParser(this, 0, 1); }
 		RepeatParser opPos () { return new RepeatParser(this, 1, 0); }
 		SequenceParser opShr (Parser p) { return new SequenceParser([this, p]); }
+		SequenceParser opShr (Parser* p) { return this >> lazy_(p); }
 		SequenceParser opShr (char ch) { return this >> char_(ch); }
 		SequenceParser opShr (string str) { return this >> string_(str); }
 		SequenceParser opShr_r (char ch) { return char_(ch) >> this; }
 		SequenceParser opShr_r (string str) { return string_(str) >> this; }
+		SequenceParser opShr_r (Parser* p) { return lazy_(p) >> this; }
 		AndParser opSub (Parser p) { return new AndParser([this, -p]); }
+		AndParser opSub (Parser* p) { return new AndParser([this, -lazy_(p)]); }
 		OrParser opOr (Parser p) { return new OrParser([this, p]); }
+		OrParser opOr (Parser* p) { return new OrParser([this, lazy_(p)]); }
 		OrParser opOr (char ch) { return new OrParser([this, new CharParser(ch)]); }
 		SequenceParser opMod (char ch) { return this % char_(ch); }
 		SequenceParser opMod (string str) { return this % string_(str); }
 		SequenceParser opMod (Parser p) { return this >> *(p >> this); };
+		SequenceParser opMod (Parser* p) { return this >> *(lazy_(p) >> this); };
 		Parser opIndex (Action) (Action act) { return new ActionParser!(Action)(this, act); }
 		abstract bool match (ref string s);
 		abstract bool match (ref string s, out Variant v);
@@ -198,7 +204,7 @@ class ActionParser (Action): UnaryParser
 			else static if (is(Action : void function (double)) || is(Action : void delegate (double)))
 				action(to!(double)(sVal));
 			else
-				static assert(false, "not implemented");
+				static assert(false, format("not implemented for %s", Action));
 			return true;
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
@@ -291,7 +297,7 @@ class ActionParser (Action): UnaryParser
 
 unittest
 {
-	new Test!(ActionParser!char, "!char")(
+	new Test!(ActionParser!(void delegate (char)), "!(void delegate (char))")(
 	{
 		char ch;
 		void setChar (char c)
@@ -306,7 +312,7 @@ unittest
 		assert(p(s));
 		assert('&' == ch);
 	});
-	new Test!(ActionParser!string, "!string")(
+	new Test!(ActionParser!(void delegate (string)), "!(void delegate (string))")(
 	{
 		string value;
 		void setValue (string s)
@@ -321,7 +327,7 @@ unittest
 		assert(p(s));
 		assert("ABcd" == value);
 	});
-	new Test!(ActionParser!uint, "!uint")(
+	new Test!(ActionParser!(void delegate (uint)), "!(void delegate (uint))")(
 	{
 		uint value;
 		void setValue (uint v)
@@ -336,7 +342,7 @@ unittest
 		assert(p(s));
 		assert(2432 == value);
 	});
-	new Test!(ActionParser!int, "!int")(
+	new Test!(ActionParser!(void delegate (int)), "!(void delegate (int))")(
 	{
 		int value;
 		void setValue (int v)
@@ -351,7 +357,7 @@ unittest
 		assert(p(s));
 		assert(-2432 == value);
 	});
-	new Test!(ActionParser!double, "!double")(
+	new Test!(ActionParser!(void delegate (double)), "!(void delegate (double))")(
 	{
 		double value;
 		void setValue (double v)
@@ -658,6 +664,7 @@ class SequenceParser: NaryParser
 		}
 		SequenceParser opShr (SequenceParser parser) { return new SequenceParser(parsers ~ parser.parsers); }
 		SequenceParser opShr (Parser parser) { return new SequenceParser(parsers ~ parser); }
+		SequenceParser opShr (Parser* parser) { return this >> lazy_(parser); }
 		SequenceParser opShr (char c) { return new SequenceParser(parsers ~ [new CharParser(c)]); }
 
 	unittest
@@ -789,6 +796,12 @@ class RepeatParser: UnaryParser
 		assert(p3(s, space));
 		s = "		\r\n\nXXXXX";
 		assert(p3(s, space));
+		auto p4 = ~(char_('A') >> 'B');
+		s = "ABCD";
+		assert(p4(s));
+		assert("CD" == s);
+		assert(p4(s));
+		assert("CD" == s);
 	}
 }
 
@@ -1114,15 +1127,47 @@ class ContextParser (ContextType): UnaryParser
 				parser.trace(name);
 				return this;
 			}
-			bool parse (string s, ContextType context, Parser skipper = null)
+			bool parse (ref string s, Parser skipper = null)
 			{
-				auto oldContext = this.context;
-				scope(exit) this.context = oldContext;
-				this.context = context;
-				return parse(s, skipper);
+				auto oldContext = context;
+				context = new ContextType();
+				writeln("new context");
+				scope(exit) { writeln("context back"); context = oldContext; }
+				return super.parse(s, skipper);
+			}
+			bool parse (ref string s, out Variant v, Parser skipper = null)
+			{
+				auto oldContext = context;
+				context = new ContextType();
+				writeln("new context");
+				scope(exit) { writeln("context back"); context = oldContext; }
+				return super.parse(s, v, skipper);
 			}
 }
+/+
+version(unittest)
+{
+	class TestContext
+	{
+		uint a;
+	}
+	class TestContextParser: ContextParser!(TestContext)
+	{
+		this ()
+		{
+			parser
+				= uint_[(uint a) { context.a = a; }]
+				>> ~('+' >> lazy_(&parser))
+				;
+		}
+	}
+}
 
+unittest
+{
+	scope t = new Test!(ContextParser!(TestContext))();
+	auto p = new ContextParser!(TestContext);
+}+/
 /++
  + LazyParser
  +/
@@ -1213,7 +1258,7 @@ class LazyParser: Parser
 	{
 		scope t = new Test!LazyParser();
 		Parser p = char_('A');
-		auto p2 = lazy_(&p) >> char_('C');
+		auto p2 = &p >> char_('C');
 		auto s = "AC";
 		assert(p2(s));
 		s = "ABC";
