@@ -6,22 +6,82 @@ import std.conv, std.array, std.variant;
 version(unittest) import qc;
 debug(parser) import std.string, std.stdio;
 
+abstract class Action
+{
+	abstract Action opCall ();
+}
+
+class TypedAction (ActionType): Action
+{
+	protected:
+		ActionType actor;
+		TypeInfo argumentType;
+
+	public:
+		this (ActionType actor)
+		{
+			this.actor = actor;
+			static if (is(ActionType : void function ()) || is(ActionType : void delegate ()))
+				argumentType = typeid(void);
+			else static if (is(ActionType : void function (char)) || is(ActionType : void delegate (char)))
+				argumentType = typeid(char);
+			else static if (is(ActionType : void function (string)) || is(ActionType : void delegate (string)))
+				argumentType = typeid(string);
+			else static if (is(ActionType : void function (byte)) || is(ActionType : void delegate (byte)))
+				argumentType = typeid(byte);
+			else static if (is(ActionType : void function (ubyte)) || is(ActionType : void delegate (ubyte)))
+				argumentType = typeid(ubyte);
+			else static if (is(ActionType : void function (short)) || is(ActionType : void delegate (short)))
+				argumentType = typeid(short);
+			else static if (is(ActionType : void function (ushort)) || is(ActionType : void delegate (ushort)))
+				argumentType = typeid(ushort);
+			else static if (is(ActionType : void function (int)) || is(ActionType : void delegate (int)))
+				argumentType = typeid(int);
+			else static if (is(ActionType : void function (uint)) || is(ActionType : void delegate (uint)))
+				argumentType = typeid(uint);
+			else static if (is(ActionType : void function (long)) || is(ActionType : void delegate (long)))
+				argumentType = typeid(long);
+			else static if (is(ActionType : void function (ulong)) || is(ActionType : void delegate (ulong)))
+				argumentType = typeid(ulong);
+			else static if (is(ActionType : void function (float)) || is(ActionType : void delegate (float)))
+				argumentType = typeid(float);
+			else static if (is(ActionType : void function (double)) || is(ActionType : void delegate (double)))
+				argumentType = typeid(double);
+			else
+				static assert(false, format("not implemented for %s", ActionType));
+		}
+		Action opCall ()
+		{
+			actor();
+			return this;
+		}
+		Action opCall (ArgType) (ArgType arg) if (is(ActionType : void function (ArgType)) || is(ActionType : void delegate (ArgType)))
+		{
+			actor(arg);
+			return this;
+		}
+}
+
+
 /++
  + Parser
  +/
 
 abstract class Parser
 {
+	protected:
+		Action[] actions;
+
 	public:
 		bool opCall (ref string s, Parser skipper = null) { return parse(s, skipper); }
 		bool opCall (ref string s, out Variant v, Parser skipper = null) { return parse(s, v, skipper); }
 		Parser opNeg () { return new NotParser(this); }
 		AndParser opAdd (Parser p) { return new AndParser([this, p]); }
-		AndParser opAdd (Parser* p) { return new AndParser([this, lazy_(p)]); }
+		AndParser opAdd (Parser* p) { return this + lazy_(p); }
 		RepeatParser opSlice (uint from, uint to = 0) { return new RepeatParser(this, from, to); }
-		RepeatParser opStar () { return new RepeatParser(this, 0, 0); }
-		RepeatParser opCom () { return new RepeatParser(this, 0, 1); }
-		RepeatParser opPos () { return new RepeatParser(this, 1, 0); }
+		RepeatParser opStar () { return this[0..0]; }
+		RepeatParser opCom () { return this[0..1]; }
+		RepeatParser opPos () { return this[1..0]; }
 		SequenceParser opShr (Parser p) { return new SequenceParser([this, p]); }
 		SequenceParser opShr (Parser* p) { return this >> lazy_(p); }
 		SequenceParser opShr (char ch) { return this >> char_(ch); }
@@ -29,18 +89,23 @@ abstract class Parser
 		SequenceParser opShr_r (char ch) { return char_(ch) >> this; }
 		SequenceParser opShr_r (string str) { return string_(str) >> this; }
 		SequenceParser opShr_r (Parser* p) { return lazy_(p) >> this; }
-		AndParser opSub (Parser p) { return new AndParser([this, -p]); }
-		AndParser opSub (Parser* p) { return new AndParser([this, -lazy_(p)]); }
+		AndParser opSub (Parser p) { return this + -p; }
+		AndParser opSub (Parser* p) { return this + -lazy_(p); }
 		OrParser opOr (Parser p) { return new OrParser([this, p]); }
-		OrParser opOr (Parser* p) { return new OrParser([this, lazy_(p)]); }
-		OrParser opOr (char ch) { return new OrParser([this, new CharParser(ch)]); }
+		OrParser opOr (Parser* p) { return this | lazy_(p); }
+		OrParser opOr (char ch) { return this | char_(ch); }
 		SequenceParser opMod (char ch) { return this % char_(ch); }
 		SequenceParser opMod (string str) { return this % string_(str); }
 		SequenceParser opMod (Parser p) { return this >> *(p >> this); };
 		SequenceParser opMod (Parser* p) { return this >> *(lazy_(p) >> this); };
-		Parser opIndex (Action) (Action act) { return new ActionParser!(Action)(this, act); }
+		Parser opIndex (ActionType) (ActionType act) { actions ~= new TypedAction!ActionType(act); return this; }
 		abstract bool match (ref string s);
 		abstract bool match (ref string s, out Variant v);
+		Parser doActions (string s)
+		{
+			foreach (action; actions)
+			return this;
+		}
 		bool parse (ref string s, Parser skipper = null)
 		{
 			auto fs = s;
@@ -51,6 +116,8 @@ abstract class Parser
 				s = fs;
 				return false;
 			}
+			if (!actions.empty)
+				doActions(fs[0 .. $ - s.length]);
 			return true;
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
@@ -63,8 +130,11 @@ abstract class Parser
 				s = fs;
 				return false;
 			}
+			if (!actions.empty)
+				doActions(fs[0 .. $ - s.length]);
 			return true;
 		}
+
 	debug(parser):
 		protected:
 			void function (Parser, string)[] beforeActions;
@@ -159,7 +229,7 @@ class NaryParser: Parser
 /++
  + ActionParser
  +/
-
+/+
 class ActionParser (Action): UnaryParser
 {
 	protected:
@@ -371,7 +441,7 @@ unittest
 		assert(p(s));
 		assert((value - -2432.54e-2) < 0.01);
 	});
-}
+}+/
 
 /++
  + PrimitiveParser
@@ -543,6 +613,7 @@ class EndParser: Parser
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
+
 	unittest
 	{
 		scope t = new Test!EndParser();
@@ -971,52 +1042,54 @@ class OrParser: NaryParser
 
 class NotParser: UnaryParser
 {
-	this (Parser parser)
-	{
-		this.parser = parser;
-	}
-	bool match (ref string s)
-	{
-		return !parser.match(s);
-	}
-	bool match (ref string s, out Variant v)
-	{
-		return !parser.match(s, v);
-	}
-	bool parse (ref string s, Parser skipper = null)
-	{
-		auto fs = s;
-		debug(parser) doBeforeActions(s);
-		if (parser(s, skipper))
+	public:
+		this (Parser parser)
 		{
-			debug(parser) doAfterActions(s, false);
-			s = fs;
-			return false;
+			this.parser = parser;
 		}
-		s = s[$ > 0? 1 : 0 .. $];
-		debug(parser) doAfterActions(s, true);
-		return true;
-	}
-	bool parse (ref string s, out Variant v, Parser skipper = null)
-	{
-		auto fs = s;
-		debug(parser) doBeforeActions(s);
-		if (parser(s, skipper))
+		bool match (ref string s)
 		{
-			debug(parser) doAfterActions(s, false);
-			s = fs;
-			return false;
+			return !parser.match(s);
 		}
-		if (s.length)
-			v = s[0];
-		s = s[$ > 0? 1 : 0 .. $];
-		debug(parser) doAfterActions(s, true);
-		return true;
-	}
-	Parser opNeg ()
-	{
-		return parser;
-	}
+		bool match (ref string s, out Variant v)
+		{
+			return !parser.match(s, v);
+		}
+		bool parse (ref string s, Parser skipper = null)
+		{
+			auto fs = s;
+			debug(parser) doBeforeActions(s);
+			if (parser(s, skipper))
+			{
+				debug(parser) doAfterActions(s, false);
+				s = fs;
+				return false;
+			}
+			s = s[$ > 0? 1 : 0 .. $];
+			debug(parser) doAfterActions(s, true);
+			return true;
+		}
+		bool parse (ref string s, out Variant v, Parser skipper = null)
+		{
+			auto fs = s;
+			debug(parser) doBeforeActions(s);
+			if (parser(s, skipper))
+			{
+				debug(parser) doAfterActions(s, false);
+				s = fs;
+				return false;
+			}
+			if (s.length)
+				v = s[0];
+			s = s[$ > 0? 1 : 0 .. $];
+			debug(parser) doAfterActions(s, true);
+			return true;
+		}
+		Parser opNeg ()
+		{
+			return parser;
+		}
+
 	unittest
 	{
 		scope t = new Test!NotParser();
@@ -1144,30 +1217,7 @@ class ContextParser (ContextType): UnaryParser
 				return super.parse(s, v, skipper);
 			}
 }
-/+
-version(unittest)
-{
-	class TestContext
-	{
-		uint a;
-	}
-	class TestContextParser: ContextParser!(TestContext)
-	{
-		this ()
-		{
-			parser
-				= uint_[(uint a) { context.a = a; }]
-				>> ~('+' >> lazy_(&parser))
-				;
-		}
-	}
-}
 
-unittest
-{
-	scope t = new Test!(ContextParser!(TestContext))();
-	auto p = new ContextParser!(TestContext);
-}+/
 /++
  + LazyParser
  +/
@@ -1176,6 +1226,7 @@ class LazyParser: Parser
 {
 	protected:
 		Parser* parser;
+
 	public:
 		this (Parser* parser)
 		{
@@ -1253,6 +1304,11 @@ class LazyParser: Parser
 				return parser.parse(s, v, skipper);
 			}
 		}
+		Parser opIndex (ActionType) (ActionType action)
+		{
+			parser[action];
+			return this;
+		}
 
 	unittest
 	{
@@ -1265,12 +1321,65 @@ class LazyParser: Parser
 		assert(!p2(s));
 		p = char_('A') >> char_('B');
 		assert(p2(s));
+		auto p3 = string_("aba");
+		Parser p4;
+		p4 = 'c' >> (p3 | lazy_(&p4)) >> 'c';
+		auto p5 = p3 | p4;
+		auto s2 = "aba";
+		assert(p5(s2));
+		auto s3 = "cabac";
+		assert(p5(s3));
+		auto s4 = "ccabacc";
+		assert(p5(s4));
 	}
 }
 
 LazyParser lazy_ (Parser* p)
 {
 	return new LazyParser(p);
+}
+version(unittest)
+{
+	class StmtContext
+	{
+		int value;
+	}
+	class StmtParser: ContextParser!StmtContext
+	{
+		this ()
+		{
+			parser = uint_[(uint val){ context.value = val; }] | ('(' >> lazy_(&expr)[{ context.value = expr.context.value; }] >> ')');
+		}
+	}
+	class ExprContext
+	{
+		int value;
+		enum Op {Plus, Minus};
+		Op op;
+	}
+	class ExprParser: ContextParser!ExprContext
+	{
+		this ()
+		{
+			parser
+				= stmt[{ context.value = stmt.context.value; }]
+				>> *((char_('-')[{ context.op = context.Op.Minus; }] | char_('+')[{ context.op = context.Op.Plus; }])
+				>> stmt[{ context.value = (context.op == context.Op.Plus)? (context.value + stmt.context.value) : (context.value - stmt.context.value); }])
+				;
+		}
+	}
+}
+unittest
+{
+	
+
+	StmtParser stmt;
+	ExprParser expr;
+	stmt = new StmtParser();
+	expr = new ExprParser();
+	auto s = "1+(3-1)+4-2";
+	assert(expr(s));
+	assert(expr.value == 5);
 }
 
 /+
@@ -1446,5 +1555,14 @@ unittest
 		assert(!eol(s));
 		s = "";
 		assert(!eol(s));
+	});
+	new Test!Action(
+	{
+		uint val;
+		auto p = char_('Z')[{ val = 5; }];
+		auto s = "ZZZ";
+		assert(val == val.init);
+		assert(p(s));
+		assert(val == 5);
 	});
 }
