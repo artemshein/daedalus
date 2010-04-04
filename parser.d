@@ -6,60 +6,120 @@ import std.conv, std.array, std.variant;
 version(unittest) import qc;
 debug(parser) import std.string, std.stdio;
 
+/++
+ + Action
+ +/
+
 abstract class Action
 {
-	abstract Action opCall ();
+	abstract Action opCall (string s);
 }
 
-class TypedAction (ActionType): Action
+/++
+ + VoidAction
+ + Action without arguments
+ +/
+
+class VoidAction: Action
 {
 	protected:
-		ActionType actor;
-		TypeInfo argumentType;
+		void delegate () actor;
 
 	public:
-		this (ActionType actor)
+		this (void delegate () actor)
 		{
 			this.actor = actor;
-			static if (is(ActionType : void function ()) || is(ActionType : void delegate ()))
-				argumentType = typeid(void);
-			else static if (is(ActionType : void function (char)) || is(ActionType : void delegate (char)))
-				argumentType = typeid(char);
-			else static if (is(ActionType : void function (string)) || is(ActionType : void delegate (string)))
-				argumentType = typeid(string);
-			else static if (is(ActionType : void function (byte)) || is(ActionType : void delegate (byte)))
-				argumentType = typeid(byte);
-			else static if (is(ActionType : void function (ubyte)) || is(ActionType : void delegate (ubyte)))
-				argumentType = typeid(ubyte);
-			else static if (is(ActionType : void function (short)) || is(ActionType : void delegate (short)))
-				argumentType = typeid(short);
-			else static if (is(ActionType : void function (ushort)) || is(ActionType : void delegate (ushort)))
-				argumentType = typeid(ushort);
-			else static if (is(ActionType : void function (int)) || is(ActionType : void delegate (int)))
-				argumentType = typeid(int);
-			else static if (is(ActionType : void function (uint)) || is(ActionType : void delegate (uint)))
-				argumentType = typeid(uint);
-			else static if (is(ActionType : void function (long)) || is(ActionType : void delegate (long)))
-				argumentType = typeid(long);
-			else static if (is(ActionType : void function (ulong)) || is(ActionType : void delegate (ulong)))
-				argumentType = typeid(ulong);
-			else static if (is(ActionType : void function (float)) || is(ActionType : void delegate (float)))
-				argumentType = typeid(float);
-			else static if (is(ActionType : void function (double)) || is(ActionType : void delegate (double)))
-				argumentType = typeid(double);
-			else
-				static assert(false, format("not implemented for %s", ActionType));
 		}
-		Action opCall ()
+		Action opCall (string s)
 		{
 			actor();
 			return this;
 		}
-		Action opCall (ArgType) (ArgType arg) if (is(ActionType : void function (ArgType)) || is(ActionType : void delegate (ArgType)))
+
+	unittest
+	{
+		scope t = new Test!Action();
+		uint u;
+		void test1 ()
 		{
-			actor(arg);
+			u = 5;
+		}
+		auto act = new VoidAction(&test1);
+		act("");
+		assert(5 == u);
+	}
+}
+
+template delegateFirstArg (Type)
+{
+	static if (is(Type == void delegate (char)))
+		alias char delegateFirstArg;
+	else static if (is(Type == void delegate (byte)))
+		alias byte delegateFirstArg;
+	else static if (is(Type == void delegate (ubyte)))
+		alias ubyte delegateFirstArg;
+	else static if (is(Type == void delegate (short)))
+		alias short delegateFirstArg;
+	else static if (is(Type == void delegate (ushort)))
+		alias ushort delegateFirstArg;
+	else static if (is(Type == void delegate (int)))
+		alias int delegateFirstArg;
+	else static if (is(Type == void delegate (uint)))
+		alias uint delegateFirstArg;
+	else static if (is(Type == void delegate (long)))
+		alias long delegateFirstArg;
+	else static if (is(Type == void delegate (ulong)))
+		alias ulong delegateFirstArg;
+	else static if (is(Type == void delegate (float)))
+		alias float delegateFirstArg;
+	else static if (is(Type == void delegate (double)))
+		alias double delegateFirstArg;
+	else static if (is(Type == void delegate (string)))
+		alias string delegateFirstArg;
+	else static assert(0, "not implemented");
+}
+
+/++
+ + TypedAction
+ + Action with one typed argument
+ +/
+
+class TypedAction (ActType): Action
+{
+	protected:
+		ActType actor;
+
+	public:
+		this (ActType actor)
+		{
+			this.actor = actor;
+		}
+		Action opCall (string s)
+		{
+			static if (is(ActType == void delegate ()))
+				actor();
+			else static if (is(ActType == void delegate (char)))
+				actor(s[0]);
+			else
+			{
+				alias delegateFirstArg!(ActType) ArgType;
+				actor(to!(ArgType)(s));
+			}
 			return this;
 		}
+}
+
+unittest
+{
+	scope t = new Test!TypedAction();
+	uint u;
+	void test1 (uint i)
+	{
+		u = i;
+	}
+	auto act = new TypedAction!(void delegate (uint))(&test1);
+	act("25");
+	assert(25 == u);
 }
 
 
@@ -69,19 +129,26 @@ class TypedAction (ActionType): Action
 
 abstract class Parser
 {
-	protected:
-		Action[] actions;
-
 	public:
+		// Parse
 		bool opCall (ref string s, Parser skipper = null) { return parse(s, skipper); }
+		bool opCall (ref string s, Action[] actions, Parser skipper = null) { return parse(s, actions, skipper); }
 		bool opCall (ref string s, out Variant v, Parser skipper = null) { return parse(s, v, skipper); }
+		bool opCall (ref string s, out Variant v, Action[] actions, Parser skipper = null) { return parse(s, v, actions, skipper); }
+		// Negative parser (-p)
 		Parser opNeg () { return new NotParser(this); }
+		// And parser (p + p)
 		AndParser opAdd (Parser p) { return new AndParser([this, p]); }
 		AndParser opAdd (Parser* p) { return this + lazy_(p); }
+		// Repeat parser (p[n..m])
 		RepeatParser opSlice (uint from, uint to = 0) { return new RepeatParser(this, from, to); }
+		// Repeat any parser (*p)
 		RepeatParser opStar () { return this[0..0]; }
+		// Repeat one or none parser (~p)
 		RepeatParser opCom () { return this[0..1]; }
+		// Repeat one or more parser (+p)
 		RepeatParser opPos () { return this[1..0]; }
+		// Sequence parser (p >> p)
 		SequenceParser opShr (Parser p) { return new SequenceParser([this, p]); }
 		SequenceParser opShr (Parser* p) { return this >> lazy_(p); }
 		SequenceParser opShr (char ch) { return this >> char_(ch); }
@@ -89,50 +156,79 @@ abstract class Parser
 		SequenceParser opShr_r (char ch) { return char_(ch) >> this; }
 		SequenceParser opShr_r (string str) { return string_(str) >> this; }
 		SequenceParser opShr_r (Parser* p) { return lazy_(p) >> this; }
+		// First but not second parser (p - p)
 		AndParser opSub (Parser p) { return this + -p; }
 		AndParser opSub (Parser* p) { return this + -lazy_(p); }
+		// Or parser (p | p)
 		OrParser opOr (Parser p) { return new OrParser([this, p]); }
 		OrParser opOr (Parser* p) { return this | lazy_(p); }
 		OrParser opOr (char ch) { return this | char_(ch); }
+		// Separated by parser (p % p)
 		SequenceParser opMod (char ch) { return this % char_(ch); }
 		SequenceParser opMod (string str) { return this % string_(str); }
 		SequenceParser opMod (Parser p) { return this >> *(p >> this); };
 		SequenceParser opMod (Parser* p) { return this >> *(lazy_(p) >> this); };
-		Parser opIndex (ActionType) (ActionType act) { actions ~= new TypedAction!ActionType(act); return this; }
-		abstract bool match (ref string s);
-		abstract bool match (ref string s, out Variant v);
-		Parser doActions (string s)
+		// Add an action to parse
+		Parser opIndex (ActType) (ActType act)
 		{
-			foreach (action; actions)
+			static if (is(ActType : Action))
+				return new ActionParser(this, [act]);
+			else
+				return new ActionParser(this, [new TypedAction!(ActType)(act)]);
 			return this;
 		}
-		bool parse (ref string s, Parser skipper = null)
+		// Try to parse
+		abstract bool match (ref string s);
+		abstract bool match (ref string s, out Variant v);
+		// Execute parser actions
+		Parser doActions (string s, Action[] actions)
 		{
+			foreach (action; actions)
+				action(s);
+			return this;
+		}
+		// Parse and execute actions if success
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		{
+			debug(parser) doBeforeActions(s);
 			auto fs = s;
 			if (skipper !is null)
 				while(skipper(s)) {}
 			if (!match(s))
 			{
+				debug(parser) doAfterActions(s, false);
 				s = fs;
 				return false;
 			}
-			if (!actions.empty)
-				doActions(fs[0 .. $ - s.length]);
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
+			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
+		bool parse (ref string s, Parser skipper = null)
 		{
+			return parse(s, null, skipper);
+		}
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		{
+			debug(parser) doBeforeActions(s);
 			auto fs = s;
 			if (skipper !is null)
 				while(skipper(s)) {}
 			if (!match(s, v))
 			{
+				debug(parser) doAfterActions(s, false);
 				s = fs;
 				return false;
 			}
-			if (!actions.empty)
-				doActions(fs[0 .. $ - s.length]);
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
+			debug(parser) doAfterActions(s, true);
 			return true;
+		}
+		bool parse (ref string s, out Variant v, Parser skipper = null)
+		{
+			return parse(s, v, null, skipper);
 		}
 
 	debug(parser):
@@ -189,6 +285,7 @@ class UnaryParser: Parser
 {
 	protected:
 		Parser parser;
+
 	public:
 		bool match (ref string s)
 		{
@@ -200,11 +297,19 @@ class UnaryParser: Parser
 		}
 		bool parse (ref string s, Parser skipper = null)
 		{
-			return parser.parse(s, skipper);
+			return super.parse(s, skipper);
+		}
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		{
+			return parser.parse(s, actions, skipper);
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
 		{
-			return parser.parse(s, v, skipper);
+			return super.parse(s, v, skipper);
+		}
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		{
+			return parser.parse(s, v, actions, skipper);
 		}
 }
 
@@ -229,219 +334,167 @@ class NaryParser: Parser
 /++
  + ActionParser
  +/
-/+
-class ActionParser (Action): UnaryParser
-{
-	protected:
-		Action action;
 
+class ActionParser: UnaryParser
+{
 	public:
-		this (Parser parser, Action action)
+		Action[] actions;
+		
+		this (Parser parser, Action[] actions)
 		{
 			this.parser = parser;
-			this.action = action;
+			this.actions = actions;
 		}
 		bool parse (ref string s, Parser skipper = null)
 		{
-			auto fs = s;
-			if (!super.parse(s, skipper))
-				return false;
-			auto sVal = fs[0 .. $ - s.length];
-			static if (is(Action : void function ()) || is(Action : void delegate ()))
-				action();
-			else static if (is(Action : void function (char)) || is(Action : void delegate (char)))
-				action(fs[0]);
-			else static if (is(Action : void function (string)) || is(Action : void delegate (string)))
-				action(to!(string)(sVal));
-			else static if (is(Action : void function (byte)) || is(Action : void delegate (byte)))
-				action(to!(byte)(sVal));
-			else static if (is(Action : void function (ubyte)) || is(Action : void delegate (ubyte)))
-				action(to!(ubyte)(sVal));
-			else static if (is(Action : void function (short)) || is(Action : void delegate (short)))
-				action(to!(short)(sVal));
-			else static if (is(Action : void function (ushort)) || is(Action : void delegate (ushort)))
-				action(to!(ushort)(sVal));
-			else static if (is(Action : void function (int)) || is(Action : void delegate (int)))
-				action(to!(int)(sVal));
-			else static if (is(Action : void function (uint)) || is(Action : void delegate (uint)))
-				action(to!(uint)(sVal));
-			else static if (is(Action : void function (long)) || is(Action : void delegate (long)))
-				action(to!(long)(sVal));
-			else static if (is(Action : void function (ulong)) || is(Action : void delegate (ulong)))
-				action(to!(ulong)(sVal));
-			else static if (is(Action : void function (float)) || is(Action : void delegate (float)))
-				action(to!(float)(sVal));
-			else static if (is(Action : void function (double)) || is(Action : void delegate (double)))
-				action(to!(double)(sVal));
+			debug(parser)
+			{
+				doBeforeActions(s);
+				auto res = parser.parse(s, actions, skipper);
+				doAfterActions(s, res);
+				return res;
+			}
 			else
-				static assert(false, format("not implemented for %s", Action));
-			return true;
+			{
+				return parser.parse(s, actions, skipper);
+			}
+		}
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		{
+			debug(parser)
+			{
+				doBeforeActions(s);
+				auto res = parser.parse(s, this.actions ~ actions, skipper);
+				doAfterActions(s, res);
+				return res;
+			}
+			else
+			{
+				return parser.parse(s, this.actions ~ actions, skipper);
+			}
 		}
 		bool parse (ref string s, out Variant v, Parser skipper = null)
 		{
-			auto fs = s;
-			if (!super.parse(s, skipper))
-				return false;
-			auto sVal = fs[0 .. $ - s.length];
-			static if (is(Action : void function ()) || is(Action : void delegate ()))
+			debug(parser)
 			{
-				action();
-			}
-			else static if (is(Action : void function (char)) || is(Action : void delegate (char)))
-			{
-				v = fs[0];
-				action(fs[0]);
-			}
-			else static if (is(Action : void function (string)) || is(Action : void delegate (string)))
-			{
-				v = sVal;
-				action(sVal);
-			}
-			else static if (is(Action : void function (byte)) || is(Action : void delegate (byte)))
-			{
-				v = sVal;
-				action(to!(byte)(sVal));
-			}
-			else static if (is(Action : void function (ubyte)) || is(Action : void delegate (ubyte)))
-			{
-				v = sVal;
-				action(to!(ubyte)(sVal));
-			}
-			else static if (is(Action : void function (short)) || is(Action : void delegate (short)))
-			{
-				v = sVal;
-				action(to!(short)(sVal));
-			}
-			else static if (is(Action : void function (ushort)) || is(Action : void delegate (ushort)))
-			{
-				v = sVal;
-				action(to!(ushort)(sVal));
-			}
-			else static if (is(Action : void function (int)) || is(Action : void delegate (int)))
-			{
-				v = sVal;
-				action(to!(int)(sVal));
-			}
-			else static if (is(Action : void function (uint)) || is(Action : void delegate (uint)))
-			{
-				v = sVal;
-				action(to!(uint)(sVal));
-			}
-			else static if (is(Action : void function (long)) || is(Action : void delegate (long)))
-			{
-				v = sVal;
-				action(to!(long)(sVal));
-			}
-			else static if (is(Action : void function (ulong)) || is(Action : void delegate (ulong)))
-			{
-				v = sVal;
-				action(to!(ulong)(sVal));
-			}
-			else static if (is(Action : void function (float)) || is(Action : void delegate (float)))
-			{
-				v = sVal;
-				action(to!(float)(sVal));
-			}
-			else static if (is(Action : void function (double)) || is(Action : void delegate (double)))
-			{
-				v = sVal;
-				action(to!(double)(sVal));
+				doBeforeActions(s);
+				auto res = parser.parse(s, v, actions, skipper);
+				doAfterActions(s, res);
+				return res;
 			}
 			else
-				static assert(false, "not implemented");
-			return true;
+			{
+				return parser.parse(s, v, actions, skipper);
+			}
 		}
-		ActionParser!(Action) opIndex (Action action)
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
-			this.action = action;
-			return this;
+			debug(parser)
+			{
+				doBeforeActions(s);
+				auto res = parser.parse(s, v, this.actions ~ actions, skipper);
+				doAfterActions(s, res);
+				return res;
+			}
+			else
+			{
+				return parser.parse(s, v, this.actions ~ actions, skipper);
+			}
 		}
 
-	debug(parser):
-		Parser trace (string name)
+	unittest
+	{
+		new Test!(VoidAction)(
 		{
-			parser.trace(name);
-			return this;
-		}
+			uint ui;
+			void setUi ()
+			{
+				ui = 6;
+			}
+			auto p = char_('&')[&setUi];
+			auto s = "F";
+			assert(!p(s));
+			assert(uint.init == ui);
+			s = "&saff";
+			assert(p(s));
+			assert(6 == ui);
+		});
+		new Test!(TypedAction, "!(void delegate (char))")(
+		{
+			char ch;
+			void setChar (char c)
+			{
+				ch = c;
+			}
+			auto p = char_('&')[&setChar];
+			auto s = "F";
+			assert(!p(s));
+			assert(char.init == ch);
+			s = "&saff";
+			assert(p(s));
+			assert('&' == ch);
+		});
+		new Test!(TypedAction, "!(void delegate (string))")(
+		{
+			string value;
+			void setValue (string s)
+			{
+				value = s;
+			}
+			auto s = "ABCD";
+			auto p = string_("ABcd")[&setValue];
+			assert(!p(s));
+			assert("" == value);
+			s = "ABcdEF";
+			assert(p(s));
+			assert("ABcd" == value);
+		});
+		new Test!(TypedAction, "!(void delegate (uint))")(
+		{
+			uint value;
+			void setValue (uint v)
+			{
+				value = v;
+			}
+			auto p = uint_[&setValue];
+			auto s = "ABCD";
+			assert(!p(s));
+			assert(uint.init == value);
+			s = "2432";
+			assert(p(s));
+			assert(2432 == value);
+		});
+		new Test!(TypedAction, "!(void delegate (int))")(
+		{
+			int value;
+			void setValue (int v)
+			{
+				value = v;
+			}
+			auto p = int_[&setValue];
+			auto s = "ABCD";
+			assert(!p(s));
+			assert(int.init == value);
+			s = "-2432";
+			assert(p(s));
+			assert(-2432 == value);
+		});
+		new Test!(TypedAction, "!(void delegate (double))")(
+		{
+			double value;
+			void setValue (double v)
+			{
+				value = v;
+			}
+			auto p = double_[&setValue];
+			auto s = "ABCD";
+			assert(!p(s));
+			s = "-2432.54e-2";
+			assert(p(s));
+			assert((value - -2432.54e-2) < 0.01);
+		});
+	}
 }
-
-unittest
-{
-	new Test!(ActionParser!(void delegate (char)), "!(void delegate (char))")(
-	{
-		char ch;
-		void setChar (char c)
-		{
-			ch = c;
-		}
-		auto p = char_('&')[&setChar];
-		auto s = "F";
-		assert(!p(s));
-		assert(char.init == ch);
-		s = "&saff";
-		assert(p(s));
-		assert('&' == ch);
-	});
-	new Test!(ActionParser!(void delegate (string)), "!(void delegate (string))")(
-	{
-		string value;
-		void setValue (string s)
-		{
-			value = s;
-		}
-		auto s = "ABCD";
-		auto p = string_("ABcd")[&setValue];
-		assert(!p(s));
-		assert("" == value);
-		s = "ABcdEF";
-		assert(p(s));
-		assert("ABcd" == value);
-	});
-	new Test!(ActionParser!(void delegate (uint)), "!(void delegate (uint))")(
-	{
-		uint value;
-		void setValue (uint v)
-		{
-			value = v;
-		}
-		auto p = uint_[&setValue];
-		auto s = "ABCD";
-		assert(!p(s));
-		assert(uint.init == value);
-		s = "2432";
-		assert(p(s));
-		assert(2432 == value);
-	});
-	new Test!(ActionParser!(void delegate (int)), "!(void delegate (int))")(
-	{
-		int value;
-		void setValue (int v)
-		{
-			value = v;
-		}
-		auto p = int_[&setValue];
-		auto s = "ABCD";
-		assert(!p(s));
-		assert(int.init == value);
-		s = "-2432";
-		assert(p(s));
-		assert(-2432 == value);
-	});
-	new Test!(ActionParser!(void delegate (double)), "!(void delegate (double))")(
-	{
-		double value;
-		void setValue (double v)
-		{
-			value = v;
-		}
-		auto p = double_[&setValue];
-		auto s = "ABCD";
-		assert(!p(s));
-		s = "-2432.54e-2";
-		assert(p(s));
-		assert((value - -2432.54e-2) < 0.01);
-	});
-}+/
 
 /++
  + PrimitiveParser
@@ -579,8 +632,8 @@ class CharParser: Parser
 		assert(!p(s));
 		s = "A";
 		assert(p(s));
-		s = "	A";
-		assert(p(s, space));
+		s = "   A";
+		assert(p(s, char_(' ')));
 	}
 }
 
@@ -621,8 +674,8 @@ class EndParser: Parser
 		assert(end(s));
 		s = "A";
 		assert(!end(s));
-		s = "  	 ";
-		assert(end(s, space));
+		s = "   ";
+		assert(end(s, char_(' ')));
 	}
 }
 
@@ -671,13 +724,13 @@ class StrParser: Parser
 		scope t = new Test!StrParser();
 		auto p = string_("CDE");
 		auto s = "CDEFGH";
-		assert(p(s, space));
+		assert(p(s));
 		s = "CDFG";
-		assert(!p(s, space));
+		assert(!p(s));
 		s = "";
-		assert(!p(s, space));
-		s = "	 \r\nCDE";
-		assert(p(s, space));
+		assert(!p(s));
+		s = "   CDE";
+		assert(p(s, char_(' ')));
 	}
 }
 
@@ -694,13 +747,13 @@ class SequenceParser: NaryParser
 		}
 		bool match (ref string s)
 		{
-			return parse(s);
+			return super.parse(s);
 		}
 		bool match (ref string s, out Variant v)
 		{
-			return parse(s, v);
+			return super.parse(s, v);
 		}
-		bool parse (ref string s, Parser skipper = null)
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			debug(parser) doBeforeActions(s);
@@ -713,10 +766,12 @@ class SequenceParser: NaryParser
 					return false;
 				}
 			}
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			v = new Variant[](parsers.length);
@@ -730,6 +785,8 @@ class SequenceParser: NaryParser
 					return false;
 				}
 			}
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
@@ -743,15 +800,15 @@ class SequenceParser: NaryParser
 		scope t = new Test!SequenceParser();
 		auto p = char_('A') >> 'B' >> 'C' >> 'D';
 		auto s = "ABCDE";
-		assert(p(s, space));
+		assert(p(s));
 		s = "BCDE";
-		assert(!p(s, space));
+		assert(!p(s));
 		s = "";
-		assert(!p(s, space));
+		assert(!p(s));
 		s = "ABCD";
-		assert(p(s, space));
-		s = "	 \r	ABCD";
-		assert(p(s, space));
+		assert(p(s));
+		s = "   ABCD";
+		assert(p(s, char_(' ')));
 	}
 }
 
@@ -774,7 +831,7 @@ class RepeatParser: UnaryParser
 			else
 				this.to = to.max;
 		}
-		bool parse (ref string s, Parser skipper = null)
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			uint counter;
@@ -791,10 +848,12 @@ class RepeatParser: UnaryParser
 				s = fs;
 				return false;
 			}
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			uint counter;
@@ -818,6 +877,8 @@ class RepeatParser: UnaryParser
 				s = fs;
 				return false;
 			}
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
@@ -827,46 +888,46 @@ class RepeatParser: UnaryParser
 		scope t = new Test!RepeatParser();
 		auto p = char_('Z')[3..5];
 		auto s = "";
-		assert(!p(s, space));
+		assert(!p(s));
 		s = "ZZ";
-		assert(!p(s, space));
+		assert(!p(s));
 		s = "ZZZ";
-		assert(p(s, space));
+		assert(p(s));
 		s = "ZZZZ";
 		assert(p(s));
 		s = "ZZZZZ";
 		assert(p(s));
 		s = "ZZZZZZ";
-		assert(p(s, space));
-		s = "	   ZZZZZZ";
-		assert(p(s, space));
+		assert(p(s));
+		s = "   ZZZZZZ";
+		assert(p(s, char_(' ')));
 		auto sp = char_('A') >> 'B' >> 'C' >> 'D';
 		auto p2 = sp[0..2];
 		s = "";
-		assert(p2(s, space));
+		assert(p2(s));
 		s = "ABECDABCDEFGH";
-		assert(p2(s, space));
+		assert(p2(s));
 		s = "ABCDABC";
-		assert(p2(s, space));
+		assert(p2(s));
 		s = "ABCDABCDEFGH";
-		assert(p2(s, space));
+		assert(p2(s));
 		s = "ABCDABCDABCDEFGH";
-		assert(p2(s, space));
-		s = "	\rABCDABCDABCDEFGH";
-		assert(p2(s, space));
+		assert(p2(s));
+		s = "   ABCDABCDABCDEFGH";
+		assert(p2(s, char_(' ')));
 		auto p3 = *char_('X');
 		s = "YXZ";
-		assert(p3(s, space));
+		assert(p3(s));
 		s = "X";
-		assert(p3(s, space));
+		assert(p3(s));
 		s = "XYZ";
-		assert(p3(s, space));
+		assert(p3(s));
 		s = "XXXYZ";
-		assert(p3(s, space));
+		assert(p3(s));
 		s = "XXXXX";
-		assert(p3(s, space));
-		s = "		\r\n\nXXXXX";
-		assert(p3(s, space));
+		assert(p3(s));
+		s = "   XXXXX";
+		assert(p3(s, char_(' ')));
 		auto p4 = ~(char_('A') >> 'B');
 		s = "ABCD";
 		assert(p4(s));
@@ -885,13 +946,13 @@ class AndParser: NaryParser
 		}
 		bool match (ref string s)
 		{
-			return parse(s);
+			return super.parse(s);
 		}
 		bool match (ref string s, out Variant v)
 		{
-			return parse(s, v);
+			return super.parse(s, v);
 		}
-		bool parse (ref string s, Parser skipper = null)
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			uint max = 0;
@@ -910,10 +971,12 @@ class AndParser: NaryParser
 					max = matchLen;
 			}
 			s = fs[max .. $];
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			uint max = 0;
@@ -935,6 +998,8 @@ class AndParser: NaryParser
 			}
 			v = res;
 			s = fs[max .. $];
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
@@ -984,13 +1049,13 @@ class OrParser: NaryParser
 		}
 		bool match (ref string s)
 		{
-			return parse(s);
+			return super.parse(s);
 		}
 		bool match (ref string s, out Variant v)
 		{
-			return parse(s, v);
+			return super.parse(s, v);
 		}
-		bool parse (ref string s, Parser skipper = null)
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			debug(parser) doBeforeActions(s);
@@ -998,6 +1063,8 @@ class OrParser: NaryParser
 			{
 				if (p(s, skipper))
 				{
+					if (actions && !actions.empty)
+						doActions(fs[0 .. $ - s.length], actions);
 					debug(parser) doAfterActions(s, true);
 					return true;
 				}
@@ -1006,7 +1073,7 @@ class OrParser: NaryParser
 			s = fs;
 			return false;
 		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			debug(parser) doBeforeActions(s);
@@ -1014,6 +1081,8 @@ class OrParser: NaryParser
 			{
 				if (p(s, v, skipper))
 				{
+					if (actions && !actions.empty)
+						doActions(fs[0 .. $ - s.length], actions);
 					debug(parser) doAfterActions(s, true);
 					return true;
 				}
@@ -1055,25 +1124,27 @@ class NotParser: UnaryParser
 		{
 			return !parser.match(s, v);
 		}
-		bool parse (ref string s, Parser skipper = null)
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			debug(parser) doBeforeActions(s);
-			if (parser(s, skipper))
+			if (parser(s, actions, skipper))
 			{
 				debug(parser) doAfterActions(s, false);
 				s = fs;
 				return false;
 			}
 			s = s[$ > 0? 1 : 0 .. $];
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
 			auto fs = s;
 			debug(parser) doBeforeActions(s);
-			if (parser(s, skipper))
+			if (parser(s, actions, skipper))
 			{
 				debug(parser) doAfterActions(s, false);
 				s = fs;
@@ -1082,6 +1153,8 @@ class NotParser: UnaryParser
 			if (s.length)
 				v = s[0];
 			s = s[$ > 0? 1 : 0 .. $];
+			if (actions && !actions.empty)
+				doActions(fs[0 .. $ - s.length], actions);
 			debug(parser) doAfterActions(s, true);
 			return true;
 		}
@@ -1169,56 +1242,6 @@ class RangeParser: Parser
 }
 
 /++
- + ContextParser
- +/
-/+
-abstract class ContextParser: UnaryParser
-{
-	public:
-		ContextParser* opAssign (Parser parser)
-		{
-			this.parser = parser;
-			return &this;
-		}
-	debug(parser):
-		public:
-			Parser trace (string name)
-			{
-				parser.trace(name);
-				return this;
-			}
-}+/
-
-class ContextParser (ContextType): UnaryParser
-{
-	public:
-		ContextType context;
-	debug(parser):
-		public:
-			ContextParser!(ContextType) trace (string name)
-			{
-				parser.trace(name);
-				return this;
-			}
-			bool parse (ref string s, Parser skipper = null)
-			{
-				auto oldContext = context;
-				context = new ContextType();
-				writeln("new context");
-				scope(exit) { writeln("context back"); context = oldContext; }
-				return super.parse(s, skipper);
-			}
-			bool parse (ref string s, out Variant v, Parser skipper = null)
-			{
-				auto oldContext = context;
-				context = new ContextType();
-				writeln("new context");
-				scope(exit) { writeln("context back"); context = oldContext; }
-				return super.parse(s, v, skipper);
-			}
-}
-
-/++
  + LazyParser
  +/
 
@@ -1234,80 +1257,42 @@ class LazyParser: Parser
 		}
 		bool match (ref string s)
 		{
-			debug(parser)
-			{
-				doBeforeActions(s);
-				if (!parser.match(s))
-				{
-					doAfterActions(s, false);
-					return false;
-				}
-				doAfterActions(s, true);
-				return true;
-			}
-			else
-			{
-				return parser.match(s);
-			}
+			debug(parser) doBeforeActions(s);
+			auto res = parser.match(s);
+			debug(parser) doAfterActions(s, res);
+			return res;
 		}
 		bool match (ref string s, out Variant v)
 		{
-			debug(parser)
-			{
-				doBeforeActions(s);
-				if (!parser.match(s, v))
-				{
-					doAfterActions(s, false);
-					return false;
-				}
-				doAfterActions(s, true);
-				return true;
-			}
-			else
-			{
-				return parser.match(s, v);
-			}
+			debug(parser) doBeforeActions(s);
+			auto res = parser.match(s, v);
+			debug(parser) doAfterActions(s, res);
+			return res;
 		}
-		bool parse (ref string s, Parser skipper = null)
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		in
 		{
-			debug(parser)
-			{
-				doBeforeActions(s);
-				if (!parser.parse(s, skipper))
-				{
-					doAfterActions(s, false);
-					return false;
-				}
-				doAfterActions(s, true);
-				return true;
-			}
-			else
-			{
-				return parser.parse(s, skipper);
-			}
+			assert(parser !is null);
 		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
+		body
 		{
-			debug(parser)
-			{
-				doBeforeActions(s);
-				if (!parser.parse(s, v, skipper))
-				{
-					doAfterActions(s, false);
-					return false;
-				}
-				doAfterActions(s, true);
-				return true;
-			}
-			else
-			{
-				return parser.parse(s, v, skipper);
-			}
+			
+			debug(parser) doBeforeActions(s);
+			auto res = parser.parse(s, actions, skipper);
+			debug(parser) doAfterActions(s, res);
+			return res;
 		}
-		Parser opIndex (ActionType) (ActionType action)
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		in
 		{
-			parser[action];
-			return this;
+			assert(parser !is null);
+		}
+		body
+		{
+			debug(parser) doBeforeActions(s);
+			auto res = parser.parse(s, v, actions, skipper);
+			debug(parser) doAfterActions(s, res);
+			return res;
 		}
 
 	unittest
@@ -1338,6 +1323,62 @@ LazyParser lazy_ (Parser* p)
 {
 	return new LazyParser(p);
 }
+
+/++
+ + ContextParser
+ +/
+class ContextParser (ContextType): UnaryParser
+{
+	public:
+		ContextType context;
+		
+		bool opCall (ref string s, Parser skipper = null) { return parse(s, skipper); }
+		bool opCall (ref string s, Action[] actions, Parser skipper = null) { return parse(s, actions, skipper); }
+		bool opCall (ref string s, out Variant v, Parser skipper = null) { return parse(s, v, skipper); }
+		bool opCall (ref string s, out Variant v, Action[] actions, Parser skipper = null) { return parse(s, v, actions, skipper); }
+		bool opCall (ref string s, ContextType context, Parser skipper = null) { return parse(s, context, skipper); }
+		bool opCall (ref string s, ContextType context, Action[] actions, Parser skipper = null) { return parse(s, context, actions, skipper); }
+		bool parse (ref string s, Parser skipper = null) { return super.parse(s, skipper); }
+		bool parse (ref string s, out Variant v, Parser skipper = null) { return super.parse(s, v, skipper); }
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		{
+			auto oldContext = context;
+			scope(exit)
+				if (oldContext)
+					context = oldContext;
+			return parse(s, new ContextType(), actions, skipper);
+		}
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		{
+			auto oldContext = context;
+			scope(exit)
+				if (oldContext)
+					context = oldContext;
+			return parse(s, new ContextType(), actions, skipper);
+		}
+		bool parse (ref string s, ContextType context, Parser skipper = null)
+		{
+			return parse(s, context, null, skipper);
+		}
+		bool parse (ref string s, ContextType context, Action[] actions, Parser skipper = null)
+		{
+			this.context = context;
+			return super.parse(s, actions, skipper);
+		}
+		void reset ()
+		{
+			context = null;
+		}
+
+	debug(parser):
+		public:
+			ContextParser!(ContextType) trace (string name)
+			{
+				parser.trace(name);
+				return this;
+			}
+}
+
 version(unittest)
 {
 	class StmtContext
@@ -1346,40 +1387,43 @@ version(unittest)
 	}
 	class StmtParser: ContextParser!StmtContext
 	{
-		this ()
+		this (ExprParser* expr)
 		{
-			parser = uint_[(uint val){ context.value = val; }] | ('(' >> lazy_(&expr)[{ context.value = expr.context.value; }] >> ')');
+			parser
+				= uint_[(uint val){ context.value = val; }]
+				| ('(' >> lazy_(expr)[{ context.value = expr.context.value; }] >> ')')
+				;
 		}
 	}
 	class ExprContext
 	{
 		int value;
-		enum Op {Plus, Minus};
-		Op op;
 	}
 	class ExprParser: ContextParser!ExprContext
 	{
-		this ()
+		this (StmtParser stmt)
 		{
 			parser
 				= stmt[{ context.value = stmt.context.value; }]
-				>> *((char_('-')[{ context.op = context.Op.Minus; }] | char_('+')[{ context.op = context.Op.Plus; }])
-				>> stmt[{ context.value = (context.op == context.Op.Plus)? (context.value + stmt.context.value) : (context.value - stmt.context.value); }])
+				>> *(
+					'+'
+					>> stmt[{ context.value += stmt.context.value; }]
+				)
 				;
 		}
 	}
 }
+
 unittest
 {
-	
-
+	scope t = new Test!ContextParser();
 	StmtParser stmt;
 	ExprParser expr;
-	stmt = new StmtParser();
-	expr = new ExprParser();
-	auto s = "1+(3-1)+4-2";
+	stmt = new StmtParser(&expr);
+	expr = new ExprParser(stmt);
+	auto s = "1+(3+1)+4+2";
 	assert(expr(s));
-	assert(expr.value == 5);
+	assert(expr.context.value == 11);
 }
 
 /+
@@ -1442,12 +1486,7 @@ CharParser char_ (char ch)
 {
 	return new CharParser(ch);
 }
-/+
-SequenceParser sequence (Parser[] parsers)
-{
-	return new SequenceParser(parsers);
-}
-+/
+
 StrParser string_ (string str)
 {
 	return new StrParser(str);
@@ -1467,6 +1506,7 @@ static Parser alpha = void, alnum = void, digit = void, eol = void,
 	anychar = void, space = void, byte_ = void, ubyte_ = void,
 	short_ = void, ushort_ = void, int_ = void, uint_ = void,
 	long_ = void, ulong_ = void, float_ = void, double_ = void;
+
 static this ()
 {
 	alpha = range('a', 'z') | range('A', 'Z');
@@ -1555,14 +1595,5 @@ unittest
 		assert(!eol(s));
 		s = "";
 		assert(!eol(s));
-	});
-	new Test!Action(
-	{
-		uint val;
-		auto p = char_('Z')[{ val = 5; }];
-		auto s = "ZZZ";
-		assert(val == val.init);
-		assert(p(s));
-		assert(val == 5);
 	});
 }

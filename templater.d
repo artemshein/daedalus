@@ -134,23 +134,37 @@ class Tornado: Templater
 						| string_("false")[{ context.val = false; }]
 						;
 				}
+				
+			unittest
+			{
+				auto tpl = new Tornado;
+				scope t = new Test!(tpl.ExprParser);
+				auto p = tpl.new ExprParser;
+				auto s = "true";
+				auto context = new BoolExpr;
+				assert(p(s, context));
+				assert(context.val);
+				s = "false";
+				assert(p(s, context));
+				assert(!context.val);
+			}
 		}
 		class IfStmtParser: ContextParser!(TplIfEl)
 		{
 			public:
-				this ()
+				this (ScriptParser* script)
 				{
 					auto elseStmt
 						= doBlockBgn
 						>> *space
-						>> string_("else").trace("else")
+						>> string_("else")
 						>> *space
 						>> doBlockEnd
 						;
 					auto endIfStmt
 						= doBlockBgn
 						>> *space
-						>> string_("endif").trace("endif")
+						>> string_("endif")
 						>> *space
 						>> doBlockEnd
 						;
@@ -158,40 +172,73 @@ class Tornado: Templater
 					parser
 						= (doBlockBgn
 						>> *space
-						>> string_("if").trace("if")
+						>> string_("if")
 						>> +space
 						>> expr[{ context.expr = expr.context; }]
 						>> *space
 						>> doBlockEnd
-						>> lazy_(&script)[{ context.ifEls = script.context.els; }]
-						>> ~(elseStmt.trace("elseStmt") >> lazy_(&script))[{ context.elseEls = script.context.els; }]
-						>> endIfStmt.trace("endIfStmt")
+						>> lazy_(script)[{ context.ifEls = script.context.els; }]
+						>> ~(elseStmt >> lazy_(script)[{ context.elseEls = script.context.els; }])
+						>> endIfStmt
 						)
 						;
 				}
+		
+			unittest
+			{
+				scope t = new Test!IfStmtParser;
+				auto tpl = new Tornado();
+				auto p = tpl.new IfStmtParser(&tpl.parser);
+				auto s = "{% if true %}{% endif %}";
+				auto context = new TplIfEl;
+				assert(p(s, context));
+				assert(context.expr.asBool);
+				s = "{% if false %}abc{% else %}def{% endif %}";
+				assert(p(s, context));
+				assert(!context.expr.asBool);
+				assert(1 == context.ifEls.length);
+				assert("abc" == context.ifEls[0].execute);
+				assert(1 == context.elseEls.length);
+				assert("def" == context.elseEls[0].execute);
+			}
 		}
 		class ScriptParser: ContextParser!(ScriptContext)
 		{
 			public:
+				IfStmtParser ifStmt;
 				this ()
 				{
 					auto commentBlockBgn = string_("{#");
 					auto commentBlockEnd = string_("#}");
 					auto comment =  commentBlockBgn >> *(-commentBlockEnd) >> commentBlockEnd;
+					ifStmt = new IfStmtParser(&this);
 					parser
 						= (
 						*	( comment
-							| ifStmt.trace("ifStmt")[{ context.appendElement(ifStmt.context); }]
-							| (anychar - (doBlockBgn | commentBlockBgn)).trace("anychar")[(char ch){ context.appendContent(ch); }]
+							| ifStmt[{ context.appendElement(ifStmt.context); }]
+							| (anychar - (doBlockBgn | commentBlockBgn))[(char ch){ context.appendContent(ch); }]
 							)
-						).trace("script")[{ context.closeContentBlock; context.els.length = context.elsCnt; }]
+						)[{ context.closeContentBlock; context.els.length = context.elsCnt; }]
 						;
+					ifStmt.trace("ifStmt");
+					parser.trace("script");
 				}
+				
+			unittest
+			{
+				auto tpl = new Tornado;
+				scope t = new Test!ScriptParser;
+				auto s = "{% if true %}yes{% else %}no{% endif %}";
+				auto p = tpl.new ScriptParser;
+				p.trace("script");
+				auto context = new ScriptContext;
+				assert(p(s, context));
+				assert(5 == context.els.length);
+			}
 		}
-		ScriptParser script;
-		IfStmtParser ifStmt;
-		Parser doBlockBgn, doBlockEnd, parser;
+		ScriptParser parser;
 		ScriptContext context;
+		Parser doBlockBgn, doBlockEnd;
 		string executeScript (TplEl[] els)
 		{
 			writeln(els);
@@ -209,27 +256,24 @@ class Tornado: Templater
 			super(tplsDirs, ws);
 			doBlockBgn = string_("{%");
 			doBlockEnd = string_("%}");
-			ifStmt = new IfStmtParser();
-			script = new ScriptParser();
-			parser = script[{ context = script.context; }];
+			parser = new ScriptParser();
 		}
 		string fetchString (string s)
 		{
-			if (!parser(s) || s.length)
+			auto context = new ScriptContext;
+			auto s2 = s.idup;
+			if (!parser(s2, context) || s2.length)
 				throw new Exception("invalid template");
-			writeln(script.context.els.length);
-			return executeScript(script.context.els);
+			writeln(context.els.length);
+			return executeScript(context.els);
 		}
 		bool assign (string, Variant) {return true;}
-}
-
-unittest
-{
-	scope t = new Test!Tornado();
-	auto tpl = new Tornado();
-	auto p = tpl.new IfStmtParser();
-	auto s = "{% if true %}{% endif %}";
-	assert(p(s));
-	s = "{% if false %}abc{% else %}def{% endif %}";
-	assert(p(s));
+		
+	unittest
+	{
+		auto tpl = new Tornado;
+		scope t = new Test!Tornado;
+		auto s = "{% if true %}yes{% else %}no{% endif %}";
+		//assert("yes" == tpl.fetchString(s));
+	}
 }
