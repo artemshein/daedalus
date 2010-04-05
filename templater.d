@@ -157,17 +157,19 @@ class Tornado: Templater
 					auto elseStmt
 						= doBlockBgn
 						>> *space
-						>> string_("else")
+						>> string_("else").trace("else")
 						>> *space
 						>> doBlockEnd
 						;
 					auto endIfStmt
 						= doBlockBgn
 						>> *space
-						>> string_("endif")
+						>> string_("endif").trace("endif")
 						>> *space
 						>> doBlockEnd
 						;
+					doBlockBgn.trace("doBlockBgn");
+					doBlockEnd.trace("doBlockEnd");
 					auto expr = new ExprParser();
 					parser
 						= (doBlockBgn
@@ -178,8 +180,8 @@ class Tornado: Templater
 						>> *space
 						>> doBlockEnd
 						>> lazy_(script)[{ context.ifEls = script.context.els; }]
-						>> ~(elseStmt >> lazy_(script)[{ context.elseEls = script.context.els; }])
-						>> endIfStmt
+						>> ~(elseStmt.trace("elseStmt") >> lazy_(script)[{ context.elseEls = script.context.els; }])
+						>> endIfStmt.trace("endIfStmt")
 						)
 						;
 				}
@@ -236,9 +238,9 @@ class Tornado: Templater
 				assert(5 == context.els.length);
 			}
 		}
+		static Parser doBlockBgn, doBlockEnd;
 		ScriptParser parser;
 		ScriptContext context;
-		Parser doBlockBgn, doBlockEnd;
 		string executeScript (TplEl[] els)
 		{
 			writeln(els);
@@ -251,11 +253,14 @@ class Tornado: Templater
 			return res;
 		}
 	public:
+		static this ()
+		{
+			doBlockBgn = string_("{%");
+			doBlockEnd = string_("%}");
+		}
 		this (string[] tplsDirs = null, WsApi ws = null)
 		{
 			super(tplsDirs, ws);
-			doBlockBgn = string_("{%");
-			doBlockEnd = string_("%}");
 			parser = new ScriptParser();
 		}
 		string fetchString (string s)

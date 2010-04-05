@@ -178,23 +178,27 @@ abstract class Parser
 			return this;
 		}
 		// Try to parse
-		abstract bool match (ref string s);
-		abstract bool match (ref string s, out Variant v);
+		abstract bool match (ref string s, Parser skipper = null);
+		abstract bool match (ref string s, out Variant v, Parser skipper = null);
 		// Execute parser actions
+		Parser skipBy (ref string s, Parser skipper)
+		{
+			if (skipper !is null)
+				while(skipper(s)) {}
+			return this;
+		}
 		Parser doActions (string s, Action[] actions)
 		{
 			foreach (action; actions)
 				action(s);
 			return this;
 		}
-		// Parse and execute actions if success
+		// Parse and execute actions on success
 		bool parse (ref string s, Action[] actions, Parser skipper = null)
 		{
 			debug(parser) doBeforeActions(s);
 			auto fs = s;
-			if (skipper !is null)
-				while(skipper(s)) {}
-			if (!match(s))
+			if (!match(s, skipper))
 			{
 				debug(parser) doAfterActions(s, false);
 				s = fs;
@@ -213,9 +217,7 @@ abstract class Parser
 		{
 			debug(parser) doBeforeActions(s);
 			auto fs = s;
-			if (skipper !is null)
-				while(skipper(s)) {}
-			if (!match(s, v))
+			if (!match(s, v, skipper))
 			{
 				debug(parser) doAfterActions(s, false);
 				s = fs;
@@ -287,15 +289,15 @@ class UnaryParser: Parser
 		Parser parser;
 
 	public:
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			return parser.match(s);
+			return parser.match(s, skipper);
 		}
-		bool match (ref string s, out Variant v)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			return parser.match(s, v);
+			return parser.match(s, v, skipper);
 		}
-		bool parse (ref string s, Parser skipper = null)
+		/+bool parse (ref string s, Parser skipper = null)
 		{
 			return super.parse(s, skipper);
 		}
@@ -310,7 +312,7 @@ class UnaryParser: Parser
 		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
 			return parser.parse(s, v, actions, skipper);
-		}
+		}+/
 }
 
 class BinaryParser: Parser
@@ -503,34 +505,32 @@ class ActionParser: UnaryParser
 class PrimitiveParser (Type): Parser
 {
 	public:
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			try
+			if (skipper !is null)
+				skipBy(s, skipper);
+			try // We should catch parse errors
 			{
-				debug(parser) doBeforeActions(s);
 				std.conv.parse!(Type)(s);
 			}
 			catch
 			{
-				debug(parser) doAfterActions(s, false);
 				return false;
 			}
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool match (ref string s, out Variant v)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			try
+			if (skipper !is null)
+				skipBy(s, skipper);
+			try // We should catch parse errors
 			{
-				debug(parser) doBeforeActions(s);
 				v = std.conv.parse!(Type)(s);
 			}
 			catch
 			{
-				debug(parser) doAfterActions(s, false);
 				return false;
 			}
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 }
@@ -594,29 +594,23 @@ class CharParser: Parser
 		{
 			value = v;
 		}
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (0 == s.length || s[0] != value)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
 			s = s[1 .. $];
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool match (ref string s, out Variant v)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (0 == s.length || s[0] != value)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
 			v = s[0];
 			s = s[1 .. $];
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -639,31 +633,26 @@ class CharParser: Parser
 
 /++
  + EndParser
+ + Matches empty string only.
  +/
 
 class EndParser: Parser
 {
 	public:
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (0 != s.length)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool match (ref string s, out Variant v)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (0 != s.length)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -681,6 +670,7 @@ class EndParser: Parser
 
 /++
  + StrParser
+ + Matches string.
  +/
 
 class StrParser: Parser
@@ -693,29 +683,23 @@ class StrParser: Parser
 		{
 			value = v;
 		}
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (s.length < value.length || s[0 .. value.length] != value)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
 			s = s[value.length .. $];
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool match (ref string s, out Variant v)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (s.length < value.length || s[0 .. value.length] != value)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
 			v = value;
 			s = s[value.length .. $];
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -736,6 +720,7 @@ class StrParser: Parser
 
 /++
  + SequenceParser
+ + Matches if all parsers in sequence are match.
  +/
 
 class SequenceParser: NaryParser
@@ -745,49 +730,19 @@ class SequenceParser: NaryParser
 		{
 			this.parsers = parsers;
 		}
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			return super.parse(s);
-		}
-		bool match (ref string s, out Variant v)
-		{
-			return super.parse(s, v);
-		}
-		bool parse (ref string s, Action[] actions, Parser skipper = null)
-		{
-			auto fs = s;
-			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
-			{
 				if (!p(s, skipper))
-				{
-					debug(parser) doAfterActions(s, false);
-					s = fs;
 					return false;
-				}
-			}
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			auto fs = s;
 			v = new Variant[](parsers.length);
-			debug(parser) doBeforeActions(s);
 			foreach (i, p; parsers)
-			{
 				if (!p(s, *v[i].peek!(Variant)(), skipper))
-				{
-					debug(parser) doAfterActions(s, false);
-					s = fs;
 					return false;
-				}
-			}
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		SequenceParser opShr (SequenceParser parser) { return new SequenceParser(parsers ~ parser.parsers); }
@@ -831,55 +786,35 @@ class RepeatParser: UnaryParser
 			else
 				this.to = to.max;
 		}
-		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		bool match (ref string s, Parser skipper = null)
 		{
-			auto fs = s;
 			uint counter;
-			debug(parser) doBeforeActions(s);
 			while (counter < to)
 			{
-				if (!parser(s, skipper))
+				if (!parser.match(s, skipper))
 					break;
 				++counter;
 			}
 			if (counter < from)
-			{
-				debug(parser) doAfterActions(s, false);
-				s = fs;
 				return false;
-			}
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			auto fs = s;
 			uint counter;
 			Variant[] res;
-			debug(parser) doBeforeActions(s);
 			while (counter < to)
 			{
 				if (res.length <= counter)
-				{
 					res.length = res.length * 2 + 1;
-				}
-				if (!parser(s, res[counter], skipper))
+				if (!parser.match(s, res[counter], skipper))
 					break;
 				++counter;
 			}
 			res.length = counter - 1;
 			v = res;
 			if (counter < from)
-			{
-				debug(parser) doAfterActions(s, false);
-				s = fs;
 				return false;
-			}
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -944,63 +879,39 @@ class AndParser: NaryParser
 		{
 			this.parsers = parsers;
 		}
-		bool match (ref string s)
-		{
-			return super.parse(s);
-		}
-		bool match (ref string s, out Variant v)
-		{
-			return super.parse(s, v);
-		}
-		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		bool match (ref string s, Parser skipper = null)
 		{
 			auto fs = s;
 			uint max = 0;
-			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
 			{
 				s = fs;
 				if (!p(s, skipper))
-				{
-					debug(parser) doAfterActions(s, false);
-					s = fs;
 					return false;
-				}
 				auto matchLen = fs.length - s.length; 
 				if (matchLen > max)
 					max = matchLen;
 			}
 			s = fs[max .. $];
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
 			auto fs = s;
 			uint max = 0;
 			Variant[] res;
 			res.length = parsers.length;
-			debug(parser) doBeforeActions(s);
 			foreach (i, p; parsers)
 			{
 				s = fs;
 				if (!p(s, res[i], skipper))
-				{
-					debug(parser) doAfterActions(s, false);
-					s = fs;
 					return false;
-				}
 				auto matchLen = fs.length - s.length; 
 				if (matchLen > max)
 					max = matchLen;
 			}
 			v = res;
 			s = fs[max .. $];
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -1047,48 +958,18 @@ class OrParser: NaryParser
 		{
 			this.parsers = parsers;
 		}
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			return super.parse(s);
-		}
-		bool match (ref string s, out Variant v)
-		{
-			return super.parse(s, v);
-		}
-		bool parse (ref string s, Action[] actions, Parser skipper = null)
-		{
-			auto fs = s;
-			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
-			{
 				if (p(s, skipper))
-				{
-					if (actions && !actions.empty)
-						doActions(fs[0 .. $ - s.length], actions);
-					debug(parser) doAfterActions(s, true);
 					return true;
-				}
-			}
-			debug(parser) doAfterActions(s, false);
-			s = fs;
 			return false;
 		}
-		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			auto fs = s;
-			debug(parser) doBeforeActions(s);
 			foreach (p; parsers)
-			{
 				if (p(s, v, skipper))
-				{
-					if (actions && !actions.empty)
-						doActions(fs[0 .. $ - s.length], actions);
-					debug(parser) doAfterActions(s, true);
 					return true;
-				}
-			}
-			debug(parser) doAfterActions(s, false);
-			s = fs;
 			return false;
 		}
 
@@ -1116,46 +997,20 @@ class NotParser: UnaryParser
 		{
 			this.parser = parser;
 		}
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			return !parser.match(s);
-		}
-		bool match (ref string s, out Variant v)
-		{
-			return !parser.match(s, v);
-		}
-		bool parse (ref string s, Action[] actions, Parser skipper = null)
-		{
-			auto fs = s;
-			debug(parser) doBeforeActions(s);
-			if (parser(s, actions, skipper))
-			{
-				debug(parser) doAfterActions(s, false);
-				s = fs;
+			if (parser.match(s, skipper))
 				return false;
-			}
 			s = s[$ > 0? 1 : 0 .. $];
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			auto fs = s;
-			debug(parser) doBeforeActions(s);
-			if (parser(s, actions, skipper))
-			{
-				debug(parser) doAfterActions(s, false);
-				s = fs;
+			if (parser.match(s, skipper))
 				return false;
-			}
 			if (s.length)
 				v = s[0];
 			s = s[$ > 0? 1 : 0 .. $];
-			if (actions && !actions.empty)
-				doActions(fs[0 .. $ - s.length], actions);
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 		Parser opNeg ()
@@ -1196,29 +1051,23 @@ class RangeParser: Parser
 			this.start = start;
 			this.end = end;
 		}
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (!s.length || s[0] < start || s[0] > end)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
 			s = s[1 .. $];
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
-		bool match (ref string s, out Variant v)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
+			if (skipper !is null)
+				skipBy(s, skipper);
 			if (!s.length || s[0] < start || s[0] > end)
-			{
-				debug(parser) doAfterActions(s, false);
 				return false;
-			}
 			v = s[0];
 			s = s[1 .. $];
-			debug(parser) doAfterActions(s, true);
 			return true;
 		}
 
@@ -1255,44 +1104,13 @@ class LazyParser: Parser
 		{
 			this.parser = parser;
 		}
-		bool match (ref string s)
+		bool match (ref string s, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
-			auto res = parser.match(s);
-			debug(parser) doAfterActions(s, res);
-			return res;
+			return parser.match(s, skipper);
 		}
-		bool match (ref string s, out Variant v)
+		bool match (ref string s, out Variant v, Parser skipper = null)
 		{
-			debug(parser) doBeforeActions(s);
-			auto res = parser.match(s, v);
-			debug(parser) doAfterActions(s, res);
-			return res;
-		}
-		bool parse (ref string s, Action[] actions, Parser skipper = null)
-		in
-		{
-			assert(parser !is null);
-		}
-		body
-		{
-			
-			debug(parser) doBeforeActions(s);
-			auto res = parser.parse(s, actions, skipper);
-			debug(parser) doAfterActions(s, res);
-			return res;
-		}
-		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
-		in
-		{
-			assert(parser !is null);
-		}
-		body
-		{
-			debug(parser) doBeforeActions(s);
-			auto res = parser.parse(s, v, actions, skipper);
-			debug(parser) doAfterActions(s, res);
-			return res;
+			return parser.match(s, v, skipper);
 		}
 
 	unittest
@@ -1338,8 +1156,14 @@ class ContextParser (ContextType): UnaryParser
 		bool opCall (ref string s, out Variant v, Action[] actions, Parser skipper = null) { return parse(s, v, actions, skipper); }
 		bool opCall (ref string s, ContextType context, Parser skipper = null) { return parse(s, context, skipper); }
 		bool opCall (ref string s, ContextType context, Action[] actions, Parser skipper = null) { return parse(s, context, actions, skipper); }
-		bool parse (ref string s, Parser skipper = null) { return super.parse(s, skipper); }
-		bool parse (ref string s, out Variant v, Parser skipper = null) { return super.parse(s, v, skipper); }
+		bool parse (ref string s, Parser skipper = null)
+		{
+			return parse(s, cast(Action[])null, skipper);
+		}
+		bool parse (ref string s, out Variant v, Parser skipper = null)
+		{
+			return parse(s, v, null, skipper);
+		}
 		bool parse (ref string s, Action[] actions, Parser skipper = null)
 		{
 			auto oldContext = context;
@@ -1370,13 +1194,13 @@ class ContextParser (ContextType): UnaryParser
 			context = null;
 		}
 
-	debug(parser):
+	/+debug(parser):
 		public:
 			ContextParser!(ContextType) trace (string name)
 			{
 				parser.trace(name);
 				return this;
-			}
+			}+/
 }
 
 version(unittest)
@@ -1390,8 +1214,8 @@ version(unittest)
 		this (ExprParser* expr)
 		{
 			parser
-				= uint_[(uint val){ context.value = val; }]
-				| ('(' >> lazy_(expr)[{ context.value = expr.context.value; }] >> ')')
+				= uint_[(uint val){ writefln("uint_ context.value = %d", val); context.value = val; }]
+				| ('(' >> lazy_(expr)[{ writefln("lazy_(expr) context.value = %d", expr.context.value); context.value = expr.context.value; }] >> ')')
 				;
 		}
 	}
@@ -1404,10 +1228,10 @@ version(unittest)
 		this (StmtParser stmt)
 		{
 			parser
-				= stmt[{ context.value = stmt.context.value; }]
+				= stmt[{ writefln("stmt context.value = %d", stmt.context.value); context.value = stmt.context.value; }]
 				>> *(
 					'+'
-					>> stmt[{ context.value += stmt.context.value; }]
+					>> stmt[{ writefln("stmt context.value = %d + %d", context.value, stmt.context.value); context.value += stmt.context.value; }]
 				)
 				;
 		}
@@ -1423,6 +1247,7 @@ unittest
 	expr = new ExprParser(stmt);
 	auto s = "1+(3+1)+4+2";
 	assert(expr(s));
+	writefln("context.value=%d", expr.context.value);
 	assert(expr.context.value == 11);
 }
 
