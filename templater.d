@@ -185,7 +185,7 @@ class Tornado: Templater
 						)
 						;
 				}
-		
+
 			unittest
 			{
 				scope t = new Test!IfStmtParser;
@@ -243,7 +243,7 @@ class Tornado: Templater
 		ScriptContext context;
 		string executeScript (TplEl[] els)
 		{
-			writeln(els);
+			//writeln(els);
 			auto res = "";
 			foreach (el; els)
 			{

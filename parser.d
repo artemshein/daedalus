@@ -240,13 +240,13 @@ abstract class Parser
 			string name;
 			static void writeBeginTrace (Parser p, string s)
 			{
-				writefln("%srule (%s) \"%s\"", repeat("  ", p.depth), p.name, s[0 .. ($ > 5)? 5 : $]);
+				writefln("%srule (%s) \"%s\"", repeat("  ", p.depth), p.name, s[0 .. ($ > 10)? 10 : $]);
 				++p.depth;
 			}
 			static void writeEndTrace (Parser p, string s, bool result)
 			{
 				--p.depth;
-				writefln("%s%srule (%s) \"%s\"", repeat("  ", p.depth), result? "/" : "#", p.name, s[0 .. ($ > 5)? 5 : $]);
+				writefln("%s%srule (%s) \"%s\"", repeat("  ", p.depth), result? "/" : "#", p.name, s[0 .. ($ > 10)? 10 : $]);
 			}
 			Parser doBeforeActions (string s)
 			{
@@ -297,22 +297,6 @@ class UnaryParser: Parser
 		{
 			return parser.match(s, v, skipper);
 		}
-		/+bool parse (ref string s, Parser skipper = null)
-		{
-			return super.parse(s, skipper);
-		}
-		bool parse (ref string s, Action[] actions, Parser skipper = null)
-		{
-			return parser.parse(s, actions, skipper);
-		}
-		bool parse (ref string s, out Variant v, Parser skipper = null)
-		{
-			return super.parse(s, v, skipper);
-		}
-		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
-		{
-			return parser.parse(s, v, actions, skipper);
-		}+/
 }
 
 class BinaryParser: Parser
@@ -1112,6 +1096,22 @@ class LazyParser: Parser
 		{
 			return parser.match(s, v, skipper);
 		}
+		bool parse (ref string s, Parser skipper = null)
+		{
+			return parse(s, null, skipper);
+		}
+		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		{
+			return parser.parse(s, actions, skipper);
+		}
+		bool parse (ref string s, out Variant v, Parser skipper = null)
+		{
+			return parse(s, v, null, skipper);
+		}
+		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		{
+			return parser.parse(s, v, actions, skipper);
+		}
 
 	unittest
 	{
@@ -1150,12 +1150,30 @@ class ContextParser (ContextType): UnaryParser
 	public:
 		ContextType context;
 		
-		bool opCall (ref string s, Parser skipper = null) { return parse(s, skipper); }
-		bool opCall (ref string s, Action[] actions, Parser skipper = null) { return parse(s, actions, skipper); }
-		bool opCall (ref string s, out Variant v, Parser skipper = null) { return parse(s, v, skipper); }
-		bool opCall (ref string s, out Variant v, Action[] actions, Parser skipper = null) { return parse(s, v, actions, skipper); }
-		bool opCall (ref string s, ContextType context, Parser skipper = null) { return parse(s, context, skipper); }
-		bool opCall (ref string s, ContextType context, Action[] actions, Parser skipper = null) { return parse(s, context, actions, skipper); }
+		bool opCall (ref string s, Parser skipper = null)
+		{
+			return parse(s, skipper);
+		}
+		bool opCall (ref string s, Action[] actions, Parser skipper = null)
+		{
+			return parse(s, actions, skipper);
+		}
+		bool opCall (ref string s, out Variant v, Parser skipper = null)
+		{
+			return parse(s, v, skipper);
+		}
+		bool opCall (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		{
+			return parse(s, v, actions, skipper);
+		}
+		bool opCall (ref string s, ContextType context, Parser skipper = null)
+		{
+			return parse(s, context, skipper);
+		}
+		bool opCall (ref string s, ContextType context, Action[] actions, Parser skipper = null)
+		{
+			return parse(s, context, actions, skipper);
+		}
 		bool parse (ref string s, Parser skipper = null)
 		{
 			return parse(s, cast(Action[])null, skipper);
@@ -1191,22 +1209,23 @@ class ContextParser (ContextType): UnaryParser
 		}
 		void reset ()
 		{
-			context = null;
+			context = cast(ContextType)null;
 		}
 
-	/+debug(parser):
+	debug(parser):
 		public:
 			ContextParser!(ContextType) trace (string name)
 			{
 				parser.trace(name);
 				return this;
-			}+/
+			}
 }
 
 version(unittest)
 {
 	class StmtContext
 	{
+		alias value this;
 		int value;
 	}
 	class StmtParser: ContextParser!StmtContext
@@ -1214,13 +1233,14 @@ version(unittest)
 		this (ExprParser* expr)
 		{
 			parser
-				= uint_[(uint val){ writefln("uint_ context.value = %d", val); context.value = val; }]
-				| ('(' >> lazy_(expr)[{ writefln("lazy_(expr) context.value = %d", expr.context.value); context.value = expr.context.value; }] >> ')')
+				= uint_[(uint val){ context = val; }]
+				| ('(' >> lazy_(expr)[{ context = expr.context; }] >> ')')
 				;
 		}
 	}
 	class ExprContext
 	{
+		alias value this;
 		int value;
 	}
 	class ExprParser: ContextParser!ExprContext
@@ -1228,10 +1248,10 @@ version(unittest)
 		this (StmtParser stmt)
 		{
 			parser
-				= stmt[{ writefln("stmt context.value = %d", stmt.context.value); context.value = stmt.context.value; }]
+				= stmt[{ context = stmt.context; }]
 				>> *(
 					'+'
-					>> stmt[{ writefln("stmt context.value = %d + %d", context.value, stmt.context.value); context.value += stmt.context.value; }]
+					>> stmt[{ context += stmt.context; }]
 				)
 				;
 		}
@@ -1245,10 +1265,10 @@ unittest
 	ExprParser expr;
 	stmt = new StmtParser(&expr);
 	expr = new ExprParser(stmt);
+	auto context = new ExprContext;
 	auto s = "1+(3+1)+4+2";
-	assert(expr(s));
-	writefln("context.value=%d", expr.context.value);
-	assert(expr.context.value == 11);
+	assert(expr(s, context));
+	assert(context.value == 11);
 }
 
 /+
