@@ -101,12 +101,15 @@ class Tornado: Templater
 					TplEl[] els;
 					void appendContent (char ch)
 					{
+						writeln("appending content ", ch);
 						if (contentBlockCnt >= contentBlock.length)
 							contentBlock.length = contentBlock.length * 2 + 1;
 						contentBlock[contentBlockCnt++] = ch;
+						writeln("now content = ", contentBlock[0 .. contentBlockCnt]);
 					}
 					void closeContentBlock ()
 					{
+						writeln("closing context");
 						if (contentBlockCnt)
 						{
 							appendElement(new TplContent(contentBlock[0 .. contentBlockCnt].idup));
@@ -115,6 +118,7 @@ class Tornado: Templater
 					}
 					void appendElement (TplEl el)
 					{
+						writeln("appending element");
 						if (elsCnt >= els.length)
 							els.length = els.length * 2 + 1;
 						els[elsCnt++] = el;
@@ -157,19 +161,17 @@ class Tornado: Templater
 					auto elseStmt
 						= doBlockBgn
 						>> *space
-						>> string_("else").trace("else")
+						>> string_("else")
 						>> *space
 						>> doBlockEnd
 						;
 					auto endIfStmt
 						= doBlockBgn
 						>> *space
-						>> string_("endif").trace("endif")
+						>> string_("endif")
 						>> *space
 						>> doBlockEnd
 						;
-					doBlockBgn.trace("doBlockBgn");
-					doBlockEnd.trace("doBlockEnd");
 					auto expr = new ExprParser();
 					parser
 						= (doBlockBgn
@@ -179,9 +181,9 @@ class Tornado: Templater
 						>> expr[{ context.expr = expr.context; }]
 						>> *space
 						>> doBlockEnd
-						>> lazy_(script)[{ context.ifEls = script.context.els; }]
-						>> ~(elseStmt.trace("elseStmt") >> lazy_(script)[{ context.elseEls = script.context.els; }])
-						>> endIfStmt.trace("endIfStmt")
+						>> lazy_(script)[{ writeln("context.ifEls = ", script.context.els.length); context.ifEls = script.context.els; }]
+						>> ~(elseStmt >> lazy_(script)[{ writeln("context.elseEls = ", script.context.els.length); context.elseEls = script.context.els; }])
+						>> endIfStmt
 						)
 						;
 				}
@@ -217,13 +219,11 @@ class Tornado: Templater
 					parser
 						= (
 						*	( comment
-							| ifStmt[{ context.appendElement(ifStmt.context); }]
-							| (anychar - (doBlockBgn | commentBlockBgn))[(char ch){ context.appendContent(ch); }]
+							| ifStmt[{ writeln("context.appendElement ", ifStmt.context); context.appendElement(ifStmt.context); }]
+							| (anychar - (doBlockBgn | commentBlockBgn))[(char ch){ writeln("context.appendContent ", ch); context.appendContent(ch); }]
 							)
-						)[{ context.closeContentBlock; context.els.length = context.elsCnt; }]
+						)[{ writeln("context.closeContentBlock ", context.elsCnt); context.closeContentBlock; context.els.length = context.elsCnt; }]
 						;
-					ifStmt.trace("ifStmt");
-					parser.trace("script");
 				}
 				
 			unittest
