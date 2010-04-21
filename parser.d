@@ -1242,28 +1242,40 @@ class LazyParser: Parser
 			return parser.match(s, v, skipper);
 		}
 		bool parse (ref string s, Action[] actions, Parser skipper = null)
+		in
+		{
+			assert(parser !is null);
+			assert(*parser !is null);
+		}
+		body
 		{
 			debug(parser)
 			{
 				doBeforeActions(s);
-				auto res = parser.parse(s, actions, skipper);
+				auto res = (*parser)(s, actions, skipper);
 				doAfterActions(s, res);
 				return res;
 			}
 			else
-				return parser.parse(s, actions, skipper);
+				return (*parser)(s, actions, skipper);
 		}
 		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
+		in
+		{
+			assert(parser !is null);
+			assert(*parser !is null);
+		}
+		body
 		{
 			debug(parser)
 			{
 				doBeforeActions(s);
-				auto res = parser.parse(s, v, actions, skipper);
+				auto res = (*parser)(s, v, actions, skipper);
 				doAfterActions(s, res);
 				return res;
 			}
 			else
-				return parser.parse(s, v, actions, skipper);
+				return (*parser)(s, v, actions, skipper);
 		}
 
 	unittest
@@ -1298,6 +1310,7 @@ LazyParser lazy_ (Parser* p)
 /++
  + ContextParser
  +/
+
 class ContextParser (ContextType): UnaryParser
 {
 	public:

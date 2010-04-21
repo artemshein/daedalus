@@ -36,7 +36,7 @@ abstract class Templater
 		}
 		abstract:
 			string fetchString (string);
-			bool assign (string, Variant);
+			//bool assign (string, Variant);
 }
 
 class Tornado: Templater
@@ -47,23 +47,40 @@ class Tornado: Templater
 		 +/
 		static
 		{
-			abstract class Expr
+			class Expr
 			{
 				public:
-					abstract bool asBool ();
-			}
-			class BoolExpr: Expr
-			{
-				public:
-					bool val;
-					bool asBool ()
+					Variant val;
+					Type opCast (Type : bool) ()
 					{
-						return this.val;
+						if (val.type == typeid(null))
+							return false;
+						return val.get!(Type);
+					}
+					bool isBiggerThan (Expr e)
+					{
+						writeln("isBiggerThan ", val, e.val);
+						if (val.type == typeid(uint))
+							return val.get!uint() > e.val.get!uint;
+						else
+							return val > e.val;
+					}
+					bool isBiggerOrEqThan (Expr e)
+					{
+						writeln("isBiggerOrEqThan ", val, e.val);
+						if (val.type == typeid(uint))
+							return val.get!uint() >= e.val.get!uint;
+						else
+							return val >= e.val;
 					}
 			}
 			abstract class TplEl
 			{
 				abstract string execute ();
+				string opCall ()
+				{
+					return execute;
+				}
 			}
 			class TplContent: TplEl
 			{
@@ -75,7 +92,7 @@ class Tornado: Templater
 					}
 					string execute ()
 					{
-						return this.content;
+						return content;
 					}
 			}
 			class TplIfEl: TplEl
@@ -86,7 +103,7 @@ class Tornado: Templater
 					string execute ()
 					{
 						auto res = "";
-						foreach (el; expr.asBool? ifEls : elseEls)
+						foreach (el; cast(bool)expr? ifEls : elseEls)
 							res ~= el.execute;
 						return res;
 					}
@@ -128,14 +145,56 @@ class Tornado: Templater
 		/++
 		 + Parsing
 		 +/
-		class ExprParser: ContextParser!(BoolExpr)
+		class AtomicExprParser: ContextParser!(Expr)
 		{
 			public:
 				this ()
 				{
+					auto id = alpha >> *alnum;
 					parser
-						= string_("true")[{ context.val = true; }]
-						| string_("false")[{ context.val = false; }]
+						= string_("true")[{ writeln("true"); context.val = Variant(true); }]
+						| string_("false")[{ writeln("false"); context.val = Variant(false); }]
+						| uint_[(uint v){ writeln("uint ", v); context.val = Variant(v); }]
+						| id[(string id){ writeln("id ", id, " val ", (this.outer.var(id).type == typeid(null))? Variant("null") : this.outer.var(id)); context.val = this.outer.var(id); }]
+						;
+				}
+		}
+		class ExprParser: ContextParser!(Expr)
+		{
+			public:
+				this ()
+				{
+					auto atomicExpr = new AtomicExprParser;
+					auto atomicExpr2 = new AtomicExprParser;
+					string op;
+					parser
+						=
+						(	atomicExpr
+							>> *space
+							>> (string_(">") | string_(">=") | string_("<") | string_("<="))[(string s){ op = s; }]
+							>> *space
+							>> atomicExpr2
+						)[{
+							writeln(atomicExpr.context.val, op, atomicExpr2.context.val);
+							switch (op)
+							{
+								case ">":
+									context.val = atomicExpr.context.isBiggerThan(atomicExpr2.context);
+									break;
+								case ">=":
+									context.val = atomicExpr.context.isBiggerOrEqThan(atomicExpr2.context);
+									break;
+								case "<":
+									context.val = atomicExpr2.context.isBiggerThan(atomicExpr.context);
+									break;
+								case "<=":
+									context.val = atomicExpr2.context.isBiggerOrEqThan(atomicExpr.context);
+									break;
+								default:
+									assert(0);
+							}
+						}]
+						| atomicExpr[{ context.val = atomicExpr.context.val; }]
 						;
 				}
 				
@@ -145,12 +204,12 @@ class Tornado: Templater
 				scope t = new Test!(tpl.ExprParser);
 				auto p = tpl.new ExprParser;
 				auto s = "true";
-				auto context = new BoolExpr;
+				auto context = new Expr;
 				assert(p(s, context));
-				assert(context.val);
+				assert(context);
 				s = "false";
 				assert(p(s, context));
-				assert(!context.val);
+				assert(!cast(bool)context);
 			}
 		}
 		class IfStmtParser: ContextParser!(TplIfEl)
@@ -191,15 +250,15 @@ class Tornado: Templater
 			unittest
 			{
 				scope t = new Test!IfStmtParser;
-				auto tpl = new Tornado();
+				auto tpl = new Tornado;
 				auto p = tpl.new IfStmtParser(&tpl.parser);
 				auto s = "{% if true %}{% endif %}";
 				auto context = new TplIfEl;
 				assert(p(s, context));
-				assert(context.expr.asBool);
+				assert(context.expr);
 				s = "{% if false %}abc{% else %}def{% endif %}";
 				assert(p(s, context));
-				assert(!context.expr.asBool);
+				assert(!cast(bool)context.expr);
 				assert(1 == context.ifEls.length);
 				assert("abc" == context.ifEls[0].execute);
 				assert(1 == context.elseEls.length);
@@ -215,7 +274,7 @@ class Tornado: Templater
 					auto commentBlockBgn = string_("{#");
 					auto commentBlockEnd = string_("#}");
 					auto comment =  commentBlockBgn >> *(-commentBlockEnd) >> commentBlockEnd;
-					ifStmt = new IfStmtParser(&this);
+					ifStmt = new IfStmtParser(&this.outer.parser);
 					parser
 						= (
 						*	( comment
@@ -228,32 +287,40 @@ class Tornado: Templater
 				
 			unittest
 			{
-				writeln("1");
-				auto tpl = new Tornado;
-				writeln("2");
 				scope t = new Test!ScriptParser;
-				writeln("3");
+				auto tpl = new Tornado;
+				//
 				auto s = "{% if true %}yes{% else %}no{% endif %}";
-				writeln("4");
-				auto p = tpl.new ScriptParser;
-				writeln("5");
-				auto context = new ScriptContext;
-				writeln("6");
-				assert(p(s));
-				writeln("7");
-				//assert(5 == context.els.length);
+				auto p = tpl.parser;
+				auto c = new ScriptContext;
+				assert(p(s, c));
+				assert(1 == c.els.length);
+				assert("yes" == c.els[0]());
+				//
+				s = "{% if false %}yes{% else %}no{% endif %}";
+				c = new ScriptContext;
+				assert(p(s, c));
+				assert(1 == c.els.length);
+				assert("no" == c.els[0]());
 			}
 		}
 		static Parser doBlockBgn, doBlockEnd;
+		struct VariantProxy
+		{
+			Variant v;
+			this (Variant v)
+			{
+				this.v = v;
+			}
+		}
+		VariantProxy[string] vars;
 		ScriptParser parser;
 		ScriptContext context;
 		string executeScript (TplEl[] els)
 		{
-			//writeln(els);
 			auto res = "";
 			foreach (el; els)
 			{
-				writefln("executing %s", el);
 				res ~= el.execute;
 			}
 			return res;
@@ -275,16 +342,42 @@ class Tornado: Templater
 			auto s2 = s.idup;
 			if (!parser(s2, context) || s2.length)
 				throw new Exception("invalid template");
-			writeln(context.els.length);
 			return executeScript(context.els);
 		}
-		bool assign (string, Variant) {return true;}
+		bool assign (Type) (string id, Type val)
+		{
+			static if (is(Type == Variant))
+				vars[id] = *new VariantProxy(val);
+			else
+				vars[id] = *new VariantProxy(Variant(val));
+			return true;
+		}
+		Variant var (string id)
+		{
+			auto val = id in vars;
+			return (val is null)? Variant(null) : (*val).v;
+		}
 		
 	unittest
 	{
-		auto tpl = new Tornado;
 		scope t = new Test!Tornado;
+		auto tpl = new Tornado;
+		//
 		auto s = "{% if true %}yes{% else %}no{% endif %}";
-		//assert("yes" == tpl.fetchString(s));
+		assert("yes" == tpl.fetchString(s));
+		//
+		s = "{% if abc %}yeah{% else %}nope{% endif %}";
+		tpl.assign("abc",true);
+		assert("yeah" == tpl.fetchString(s));
+		tpl.assign("abc", null);
+		assert("nope" == tpl.fetchString(s));
+		//
+		s = "{% if cbd5 > def6 %}111{% else %}222{% endif %}";
+		tpl.assign("cbd5", 5);
+		tpl.assign("def6", 6);
+		assert("222" == tpl.fetchString(s));
+		tpl.assign("cbd5", 50);
+		tpl.assign("def6", 20);
+		assert("111" == tpl.fetchString(s));
 	}
 }
