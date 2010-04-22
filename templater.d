@@ -59,7 +59,6 @@ class Tornado: Templater
 					}
 					bool isBiggerThan (Expr e)
 					{
-						writeln("isBiggerThan ", val, e.val);
 						if (val.type == typeid(uint))
 							return val.get!uint() > e.val.get!uint;
 						else
@@ -67,7 +66,6 @@ class Tornado: Templater
 					}
 					bool isBiggerOrEqThan (Expr e)
 					{
-						writeln("isBiggerOrEqThan ", val, e.val);
 						if (val.type == typeid(uint))
 							return val.get!uint() >= e.val.get!uint;
 						else
@@ -152,48 +150,50 @@ class Tornado: Templater
 				{
 					auto id = alpha >> *alnum;
 					parser
-						= string_("true")[{ writeln("true"); context.val = Variant(true); }]
-						| string_("false")[{ writeln("false"); context.val = Variant(false); }]
-						| uint_[(uint v){ writeln("uint ", v); context.val = Variant(v); }]
-						| id[(string id){ writeln("id ", id, " val ", (this.outer.var(id).type == typeid(null))? Variant("null") : this.outer.var(id)); context.val = this.outer.var(id); }]
+						= string_("true")[{ context.val = Variant(true); }]
+						| string_("false")[{ context.val = Variant(false); }]
+						| uint_[(uint v){ context.val = Variant(v); }]
+						| id[(string id){ context.val = this.outer.var(id); }]
 						;
 				}
 		}
 		class ExprParser: ContextParser!(Expr)
 		{
+			protected:
+				AtomicExprParser atomicExpr;
+
 			public:
 				this ()
 				{
-					auto atomicExpr = new AtomicExprParser;
-					auto atomicExpr2 = new AtomicExprParser;
+					atomicExpr = new AtomicExprParser;
+					auto atomicExprContext = new Expr;
 					string op;
 					parser
 						=
-						(	atomicExpr
+						(	atomicExpr[{ atomicExprContext = atomicExpr.context; }]
 							>> *space
 							>> (string_(">") | string_(">=") | string_("<") | string_("<="))[(string s){ op = s; }]
 							>> *space
-							>> atomicExpr2
-						)[{
-							writeln(atomicExpr.context.val, op, atomicExpr2.context.val);
-							switch (op)
-							{
-								case ">":
-									context.val = atomicExpr.context.isBiggerThan(atomicExpr2.context);
-									break;
-								case ">=":
-									context.val = atomicExpr.context.isBiggerOrEqThan(atomicExpr2.context);
-									break;
-								case "<":
-									context.val = atomicExpr2.context.isBiggerThan(atomicExpr.context);
-									break;
-								case "<=":
-									context.val = atomicExpr2.context.isBiggerOrEqThan(atomicExpr.context);
-									break;
-								default:
-									assert(0);
-							}
-						}]
+							>> atomicExpr[{
+								switch (op)
+								{
+									case ">":
+										context.val = atomicExprContext.isBiggerThan(atomicExpr.context);
+										break;
+									case ">=":
+										context.val = atomicExprContext.isBiggerOrEqThan(atomicExpr.context);
+										break;
+									case "<":
+										context.val = atomicExpr.context.isBiggerThan(atomicExprContext);
+										break;
+									case "<=":
+										context.val = atomicExpr.context.isBiggerOrEqThan(atomicExprContext);
+										break;
+									default:
+										assert(0);
+								}
+							}]
+						)
 						| atomicExpr[{ context.val = atomicExpr.context.val; }]
 						;
 				}
