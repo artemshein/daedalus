@@ -35,3 +35,19 @@ scope class Test (alias A, string B = "")
 			finalize;
 		}
 }
+
+void assertThrows (ExceptionClass) (void delegate () act)
+{
+	try
+	{
+		act();
+	}
+	catch (ExceptionClass e)
+	{
+		return;
+	}
+	catch
+	{
+		assert(0);
+	}
+}
