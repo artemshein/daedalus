@@ -36,7 +36,8 @@ abstract class Templater
 		}
 		abstract:
 			string fetchString (string);
-			//bool assign (string, Variant);
+			Variant var (string);
+			bool var (string, Variant);
 }
 
 abstract class TplError: Error
@@ -100,7 +101,7 @@ private struct VariantProxy
 	}
 }
 
-private abstract class Modifier
+abstract class Modifier
 {
 	abstract Variant opCall (Variant v, Variant[] params);
 }
@@ -118,12 +119,10 @@ private class ModifierCall
 }
 private class Expr
 {
-	protected:
-		Modifier[string] modifiers;
-
 	public:
 		Variant val;
 		ModifierCall[] modifiersCalls;
+		
 		Type opCast (Type : bool) ()
 		{
 			if (!val.hasValue || val.type == typeid(null))
@@ -151,17 +150,12 @@ private class Expr
 			else
 				return val == e.val;
 		}
-		Expr addModifierCall (ModifierCall modifierCall)
+		auto addModifierCall (ModifierCall modifierCall)
 		{
 			modifiersCalls ~= modifierCall;
 			return this;
 		}
-		Expr addModifier (string name, Modifier modifier)
-		{
-			modifiers[name] = modifier;
-			return this;
-		}
-		Expr applyModifierCall (ref Variant v, ModifierCall modifierCall)
+		auto applyModifierCall (ref Variant v, ModifierCall modifierCall, Modifier[string] modifiers)
 		{
 			auto modifier = modifierCall.name in modifiers;
 			if (modifier is null)
@@ -169,10 +163,10 @@ private class Expr
 			(*modifier)(v, modifierCall.params);
 			return this;
 		}
-		Expr applyModifiersCalls ()
+		auto applyModifiersCalls (Modifier[string] modifiers)
 		{
 			foreach (modifierCall; modifiersCalls)
-				applyModifierCall(val, modifierCall);
+				applyModifierCall(val, modifierCall, modifiers);
 			return this;
 		}
 		
@@ -283,14 +277,19 @@ class VarParser: ContextParser!(Expr)
 {
 	protected:
 		VariantProxy[string] vars;
+		Modifier[string] modifiers;
 
-		Variant var (string name)
+	public:
+		auto var (string name)
 		{
 			auto val = name in vars;
 			return (val is null)? Variant(null) : (*val).v;
 		}
-
-	public:
+		auto var (string name, Variant value)
+		{
+			vars[name] = *new VariantProxy(value);
+			return this;
+		}
 		this ()
 		{
 			auto modifier = new ModifierParser;
@@ -299,14 +298,13 @@ class VarParser: ContextParser!(Expr)
 				>> *(modifier[{ context.addModifierCall(modifier.context); }])
 				;
 		}
-		VarParser assign (string name, VariantProxy value)
+		auto modifier (string name)
 		{
-			vars[name] = value;
-			return this;
+			return modifiers[name];
 		}
-		VarParser register (string name, Variant function (Variant) modifier)
+		auto modifier (string name, Modifier modifier)
 		{
-			var.register(name, modifier);
+			modifiers[name] = modifier;
 			return this;
 		}
 }
@@ -314,27 +312,44 @@ class AtomicExprParser: ContextParser!(Expr)
 {
 	protected:
 		SimpleExprParser simpleExpr;
-		VarParser var;
+		VarParser varP;
 
 	public:
 		this ()
 		{
 			simpleExpr = new SimpleExprParser;
-			var = new VarParser;
+			varP = new VarParser;
 			parser
 				= simpleExpr.trace("simpleExpr")[{ context = simpleExpr.context; }]
-				| var[{ context = var.context; }]
+				| varP[{ context = varP.context; }]
 				;
 		}
-		AtomicExprParser assign (string name, VariantProxy value)
+		auto var (string name)
 		{
-			var.assign(name, value);
+			return varP.var(name);
+		}
+		auto var (string name, Variant value)
+		{
+			varP.var(name, value);
 			return this;
 		}
-		AtomicExprParser register (string name, Variant function (Variant) modifier)
+		auto modifier (string name)
 		{
-			var.register(name, modifier);
+			return varP.modifier(name);
+		}
+		auto modifier (string name, Modifier modifier)
+		{
+			varP.modifier(name, modifier);
 			return this;
+		}
+		auto applyModifiersCalls ()
+		{
+			context.applyModifiersCalls(varP.modifiers);
+			return this;
+		}
+		auto modifiers ()
+		{
+			return varP.modifiers;
 		}
 }
 class ExprParser: ContextParser!(Expr)
@@ -355,8 +370,9 @@ class ExprParser: ContextParser!(Expr)
 					>> (string_(">") | string_(">=") | string_("<") | string_("<=") | string_("=="))[(string s){ op = s; }]
 					>> *space
 					>> atomicExpr[{
-						atomicExprContext.applyModifiersCalls;
-						atomicExpr.context.applyModifiersCalls;
+						auto modifiers = atomicExpr.modifiers;
+						atomicExprContext.applyModifiersCalls(modifiers);
+						atomicExpr.applyModifiersCalls;
 						switch (op)
 						{
 							case ">":
@@ -382,12 +398,12 @@ class ExprParser: ContextParser!(Expr)
 				| atomicExpr[{ context = atomicExpr.context; }]
 				;
 		}
-		ExprParser assign (string name, VariantProxy value)
+		auto var (string name, Variant value)
 		{
-			atomicExpr.assign(name, value);
+			atomicExpr.var(name, value);
 			return this;
 		}
-		ExprParser register (string name, Variant function (Variant) modifier)
+		auto register (string name, Variant function (Variant) modifier)
 		{
 			atomicExpr.register(name, modifier);
 			return this;
