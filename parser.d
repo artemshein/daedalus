@@ -783,6 +783,7 @@ class SequenceParser: NaryParser
 					return false;
 			return true;
 		}
+		SequenceParser opShr (string str) { return new SequenceParser(parsers ~ string_(str)); }
 		SequenceParser opShr (SequenceParser parser) { return new SequenceParser(parsers ~ parser.parsers); }
 		SequenceParser opShr (Parser parser) { return new SequenceParser(parsers ~ parser); }
 		SequenceParser opShr (Parser* parser) { return this >> lazy_(parser); }
@@ -1347,7 +1348,7 @@ class ContextParser (ContextType): UnaryParser
 			scope(exit)
 				if (oldContext)
 					context = oldContext;
-			return parse(s, new ContextType(), actions, skipper);
+			return parse(s, new ContextType, actions, skipper);
 		}
 		bool parse (ref string s, out Variant v, Action[] actions, Parser skipper = null)
 		{
@@ -1355,7 +1356,7 @@ class ContextParser (ContextType): UnaryParser
 			scope(exit)
 				if (oldContext)
 					context = oldContext;
-			return parse(s, new ContextType(), actions, skipper);
+			return parse(s, new ContextType, actions, skipper);
 		}
 		bool parse (ref string s, ContextType context, Parser skipper = null)
 		{
