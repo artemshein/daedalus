@@ -14,6 +14,7 @@ abstract class Templater
 	protected:
 		WsApi ws;
 		string[] tplsDirs;
+		
 	public:
 		this (string[] tplsDirs = null, WsApi ws = null)
 		{
@@ -36,7 +37,8 @@ abstract class Templater
 		}
 		abstract:
 			string fetchString (string);
-			//bool assign (string, Variant);
+			Variant var (string);
+			Templater var (string, Variant);
 }
 
 abstract class TplError: Error
@@ -91,109 +93,230 @@ class InvalidModifierError: TplExecutionError
 	}
 }
 
-private struct VariantProxy
+class InvalidModifierParamTypeError: TplExecutionError
 {
-	Variant v;
-	this (Variant v)
+	this (string file, size_t line)
 	{
-		this.v = v;
+		super("Invalid parameter for modifier", file, line);
+	}
+	this (string info)
+	{
+		super("Invalid parameter for modifier " ~ info, file, line);
 	}
 }
 
-private abstract class Modifier
+private abstract class Expr
 {
-	abstract Variant opCall (Variant v, Variant[] params);
+	abstract Variant opCall (TornadoState state = null);
 }
 
-private class ModifierCall
+private class RefExpr: Expr
 {
 	public:
-		string name;
-		Variant[] params;
-		ModifierCall appendParam (Variant v)
+		Expr expr;
+
+		Variant opCall (TornadoState state = null)
 		{
-			params ~= v;
-			return this;
+			return expr(state);
 		}
 }
-private class Expr
+
+private class BoolExpr: Expr
+{
+	bool v;
+	this (bool v)
+	{
+		this.v = v;
+	}
+	Variant opCall (TornadoState state = null)
+	{
+		return Variant(v);
+	}
+}
+
+private class UintExpr: Expr
+{
+	uint v;
+	this (uint v)
+	{
+		this.v = v;
+	}
+	Variant opCall (TornadoState state = null)
+	{
+		return Variant(v);
+	}
+}
+
+private class IntExpr: Expr
+{
+	int v;
+	this (int v)
+	{
+		this.v = v;
+	}
+	Variant opCall (TornadoState state = null)
+	{
+		return Variant(v);
+	}
+}
+
+private class StrExpr: Expr
+{
+	string v;
+	this (string v)
+	{
+		this.v = v;
+	}
+	Variant opCall (TornadoState state = null)
+	{
+		return Variant(v);
+	}
+}
+
+private class VarExpr: Expr
 {
 	protected:
-		Modifier[string] modifiers;
-
-	public:
-		Variant val;
-		ModifierCall[] modifiersCalls;
-		Type opCast (Type : bool) ()
-		{
-			if (!val.hasValue || val.type == typeid(null))
-				return false;
-			return val.get!(Type);
-		}
-		bool isBiggerThan (Expr e)
-		{
-			if (val.type == typeid(uint))
-				return val.get!uint > e.val.get!uint;
-			else
-				return val > e.val;
-		}
-		bool isBiggerOrEqThan (Expr e)
-		{
-			if (val.type == typeid(uint))
-				return val.get!uint >= e.val.get!uint;
-			else
-				return val >= e.val;
-		}
-		bool isEq (Expr e)
-		{
-			if (val.type == typeid(uint))
-				return val.get!uint == e.val.get!uint;
-			else
-				return val == e.val;
-		}
-		Expr addModifierCall (ModifierCall modifierCall)
+		auto addModifierCall (ModifierCall modifierCall)
 		{
 			modifiersCalls ~= modifierCall;
 			return this;
 		}
-		Expr addModifier (string name, Modifier modifier)
+		VarExpr applyModifiersCalls (ref Variant v, TornadoState state)
+		in
 		{
-			modifiers[name] = modifier;
-			return this;
+			assert(state);
 		}
-		Expr applyModifierCall (ref Variant v, ModifierCall modifierCall)
+		body
 		{
-			auto modifier = modifierCall.name in modifiers;
-			if (modifier is null)
-				throw new InvalidModifierError(modifierCall.name);
-			(*modifier)(v, modifierCall.params);
-			return this;
-		}
-		Expr applyModifiersCalls ()
-		{
+			auto modifiers = state.modifiers;
 			foreach (modifierCall; modifiersCalls)
-				applyModifierCall(val, modifierCall);
+			{
+				Variant[] params;
+				foreach (param; modifierCall.params)
+					params ~= param(state);
+				auto modifier = modifierCall.name in modifiers;
+				if (modifier is null)
+					throw new InvalidModifierError(modifierCall.name);
+				(*modifier)(v, params);
+			}
 			return this;
 		}
 		
+	public:
+		static
+		{
+			class ModifierCall
+			{
+				public:
+					string name;
+					Expr[] params;
+					
+					ModifierCall appendParam (Expr v)
+					{
+						params ~= v;
+						return this;
+					}
+			}
+		}
+		
+		string name;
+		ModifierCall[] modifiersCalls;
+	
+		Variant opCall (TornadoState state = null)
+		in
+		{
+			assert(state);
+		}
+		body
+		{
+			auto v = state.var(name);
+			applyModifiersCalls(v, state);
+			return v;
+		}
 }
+
+private class OpExpr: Expr
+{
+	protected:
+		static
+		{
+			bool isBiggerThan (Variant l, Variant r)
+			{
+				if (l.type == typeid(uint))
+					return l.get!uint > r.get!uint;
+				else if (l.type == typeid(int))
+					return l.get!int > r.get!int;
+				else
+					return l > r;
+			}
+			bool isBiggerOrEqThan (Variant l, Variant r)
+			{
+				if (l.type == typeid(uint))
+					return l.get!uint >= r.get!uint;
+				else if (l.type == typeid(int))
+					return l.get!int >= r.get!int;
+				else
+					return l >= r;
+			}
+			bool isEq (Variant l, Variant r)
+			{
+				if (l.type == typeid(uint))
+					return l.get!uint == r.get!uint;
+				else if (l.type == typeid(int))
+					return l.get!int == r.get!int;
+				else
+					return l == r;
+			}
+		}
+	public:
+		Expr left, right;
+		string op;
+		
+		Variant opCall (TornadoState state = null)
+		in
+		{
+			assert(state);
+		}
+		body
+		{
+			auto l = left(state), r = right(state);
+			switch (op)
+			{
+				case ">":
+					return Variant(isBiggerThan(l, r));
+				case ">=":
+					return Variant(isBiggerOrEqThan(l, r));
+				case "<":
+					return Variant(isBiggerThan(r, l));
+				case "<=":
+					return Variant(isBiggerOrEqThan(r, l));
+				case "==":
+					return Variant(isEq(l, r));
+			}
+			assert(0, "invalid operator");
+		}
+}
+
 private abstract class TplEl
 {
-	abstract string execute ();
-	string opCall ()
-	{
-		return execute;
-	}
+	public:
+		abstract string execute (TornadoState state = null);
+		string opCall (TornadoState state = null)
+		{
+			return execute(state);
+		}
 }
+
 private class TplContent: TplEl
 {
 	public:
 		string content;
+		
 		this (string content)
 		{
 			this.content = content;
 		}
-		string execute ()
+		string execute (TornadoState state = null)
 		{
 			return content;
 		}
@@ -203,58 +326,120 @@ private class TplIfEl: TplEl
 	public:
 		Expr expr;
 		TplEl[] ifEls, elseEls;
-		string execute ()
+		
+		string execute (TornadoState state = null)
+		in
+		{
+			assert(expr);
+		}
+		body
 		{
 			auto res = "";
-			foreach (el; cast(bool)expr? ifEls : elseEls)
-				res ~= el.execute;
+			foreach (el; expr().get!bool? ifEls : elseEls)
+				res ~= el.execute(state);
 			return res;
 		}
 }
+
+string foreachIfStmt (string Type) ()
+{
+	return
+	"foreach (k, v; val.get!(" ~ Type ~ "))
+	{
+		if (keyVar)
+			state.var(keyVar, Variant(k));
+		state.var(valVar, Variant(v));
+		foreach (el; els)
+			res ~= el.execute(state);
+	}";
+}
+
+private class TplForeachEl: TplEl
+{
+	public:
+		string keyVar, valVar, exprVar;
+		TplEl[] els;
+		
+		string execute (TornadoState state = null)
+		in
+		{
+			assert(state);
+		}
+		body
+		{
+			auto res = "";
+			Variant val = state.var(exprVar);
+			if (val.type == typeid(string[]))
+				mixin(foreachIfStmt!"string[]");
+			else if (val.type == typeid(uint[]))
+				mixin(foreachIfStmt!"uint[]");
+			else if (val.type == typeid(int[]))
+				mixin(foreachIfStmt!"int[]");
+			else if (val.type == typeid(Variant[]))
+				mixin(foreachIfStmt!"Variant[]");
+			else if (val.type == typeid(Variant[]))
+				mixin(foreachIfStmt!"Variant[]");
+			else if (val.type == typeid(string[string]))
+				mixin(foreachIfStmt!"string[string]");
+			else if (val.type == typeid(uint[string]))
+				mixin(foreachIfStmt!"uint[string]");
+			else if (val.type == typeid(int[string]))
+				mixin(foreachIfStmt!"int[string]");
+			else if (val.type == typeid(Variant[string]))
+				mixin(foreachIfStmt!"Variant[string]");
+			else if (val.type == typeid(Variant[string]))
+				mixin(foreachIfStmt!"Variant[string]");
+			else
+				assert(0);
+			return res;
+		}
+}
+
 private class ScriptContext
 {
 	protected:
 		uint elsCnt;
 		uint contentBlockCnt;
 		char[] contentBlock;
+		
 	public:
 		TplEl[] els;
+		
 		void appendContent (char ch)
 		{
-			//writeln("appending content ", ch);
 			if (contentBlockCnt >= contentBlock.length)
 				contentBlock.length = contentBlock.length * 2 + 1;
 			contentBlock[contentBlockCnt++] = ch;
-			//writeln("now content = ", contentBlock[0 .. contentBlockCnt]);
 		}
 		void closeContentBlock ()
 		{
-			//writeln("closing context");
 			if (contentBlockCnt)
 			{
-				appendElement(new TplContent(contentBlock[0 .. contentBlockCnt].idup));
+				auto c = contentBlockCnt;
 				contentBlockCnt = 0;
+				appendElement(new TplContent(contentBlock[0 .. c].idup));
 			}
 		}
 		void appendElement (TplEl el)
 		{
-			//writeln("appending element");
+			closeContentBlock;
 			if (elsCnt >= els.length)
 				els.length = els.length * 2 + 1;
 			els[elsCnt++] = el;
 		}
 }
 
-class SimpleExprParser: ContextParser!(Expr)
+class SimpleExprParser: ContextParser!(RefExpr)
 {
 	public:
 		this ()
 		{
 			parser
-				= string_("true")[{ context.val = true; }]
-				| string_("false")[{ context.val = false; }]
-				| uint_[(uint v){ context.val = v; }]
-				| (char_('"') >> *(string_("\\\"") | -char_('"')) >> char_('"'))[(string s){ context.val = parseString(s); }]
+				= string_("true")[{ context.expr = new BoolExpr(true); }]
+				| string_("false")[{ context.expr = new BoolExpr(false); }]
+				| uint_[(uint v){ context.expr = new UintExpr(v); }]
+				| int_[(int v){ context.expr = new IntExpr(v); }]
+				| (char_('"') >> *(string_("\\\"") | -char_('"')) >> char_('"'))[(string s){ context.expr = new StrExpr(parseString(s)); }]
 				;
 		}
 		static string parseString (string s)
@@ -263,10 +448,12 @@ class SimpleExprParser: ContextParser!(Expr)
 			return s[1 .. $ - 1];
 		}
 }
-class ModifierParser: ContextParser!(ModifierCall)
+
+class ModifierParser: ContextParser!(VarExpr.ModifierCall)
 {
 	public:
 		SimpleExprParser simpleExpr;
+		
 		this ()
 		{
 			simpleExpr = new SimpleExprParser;
@@ -274,70 +461,42 @@ class ModifierParser: ContextParser!(ModifierCall)
 				= char_('|')
 				>> (alpha >> *alnum)[(string s){ context.name = s; }]
 				>> *(
-					char_(':') >> simpleExpr[{ context.appendParam(simpleExpr.context.val); }]
+					char_(':') >> simpleExpr[{ context.appendParam(simpleExpr.context); }]
 				)
 				;
 		}
 }
-class VarParser: ContextParser!(Expr)
+
+class VarParser: ContextParser!(VarExpr)
 {
-	protected:
-		VariantProxy[string] vars;
-
-		Variant var (string name)
-		{
-			auto val = name in vars;
-			return (val is null)? Variant(null) : (*val).v;
-		}
-
 	public:
 		this ()
 		{
 			auto modifier = new ModifierParser;
 			parser
-				= (alpha >> *alnum)[(string id){ context.val = var(id); }]
+				= id[(string id){ context.name = id; }]
 				>> *(modifier[{ context.addModifierCall(modifier.context); }])
 				;
 		}
-		VarParser assign (string name, VariantProxy value)
-		{
-			vars[name] = value;
-			return this;
-		}
-		VarParser register (string name, Variant function (Variant) modifier)
-		{
-			var.register(name, modifier);
-			return this;
-		}
 }
-class AtomicExprParser: ContextParser!(Expr)
+class AtomicExprParser: ContextParser!(RefExpr)
 {
 	protected:
 		SimpleExprParser simpleExpr;
-		VarParser var;
+		VarParser varP;
 
 	public:
 		this ()
 		{
 			simpleExpr = new SimpleExprParser;
-			var = new VarParser;
+			varP = new VarParser;
 			parser
-				= simpleExpr.trace("simpleExpr")[{ context = simpleExpr.context; }]
-				| var[{ context = var.context; }]
+				= simpleExpr.trace("simpleExpr")[{ context.expr = simpleExpr.context; }]
+				| varP[{ context.expr = varP.context; }]
 				;
 		}
-		AtomicExprParser assign (string name, VariantProxy value)
-		{
-			var.assign(name, value);
-			return this;
-		}
-		AtomicExprParser register (string name, Variant function (Variant) modifier)
-		{
-			var.register(name, modifier);
-			return this;
-		}
 }
-class ExprParser: ContextParser!(Expr)
+class ExprParser: ContextParser!(RefExpr)
 {
 	protected:
 		AtomicExprParser atomicExpr;
@@ -346,51 +505,16 @@ class ExprParser: ContextParser!(Expr)
 		this ()
 		{
 			atomicExpr = new AtomicExprParser;
-			auto atomicExprContext = new Expr;
-			string op;
 			parser
 				=
-				(	atomicExpr[{ atomicExprContext = atomicExpr.context; }]
+				(	atomicExpr[{ auto expr = new OpExpr; expr.left = atomicExpr.context; context.expr = expr; }]
 					>> *space
-					>> (string_(">") | string_(">=") | string_("<") | string_("<=") | string_("=="))[(string s){ op = s; }]
+					>> (string_(">") | string_(">=") | string_("<") | string_("<=") | string_("=="))[(string s){ (cast(OpExpr)context.expr).op = s; }]
 					>> *space
-					>> atomicExpr[{
-						atomicExprContext.applyModifiersCalls;
-						atomicExpr.context.applyModifiersCalls;
-						switch (op)
-						{
-							case ">":
-								context.val = atomicExprContext.isBiggerThan(atomicExpr.context);
-								break;
-							case ">=":
-								context.val = atomicExprContext.isBiggerOrEqThan(atomicExpr.context);
-								break;
-							case "<":
-								context.val = atomicExpr.context.isBiggerThan(atomicExprContext);
-								break;
-							case "<=":
-								context.val = atomicExpr.context.isBiggerOrEqThan(atomicExprContext);
-								break;
-							case "==":
-								context.val = atomicExpr.context.isEq(atomicExprContext);
-								break;
-							default:
-								assert(0);
-						}
-					}]
+					>> atomicExpr[{ (cast(OpExpr)context.expr).right = atomicExpr.context; }]
 				)
-				| atomicExpr[{ context = atomicExpr.context; }]
+				| atomicExpr[{ context.expr = atomicExpr.context; }]
 				;
-		}
-		ExprParser assign (string name, VariantProxy value)
-		{
-			atomicExpr.assign(name, value);
-			return this;
-		}
-		ExprParser register (string name, Variant function (Variant) modifier)
-		{
-			atomicExpr.register(name, modifier);
-			return this;
 		}
 		
 	unittest
@@ -398,21 +522,23 @@ class ExprParser: ContextParser!(Expr)
 		scope t = new Test!ExprParser;
 		auto p = new ExprParser;
 		auto s = "true";
-		auto context = new Expr;
+		auto context = new RefExpr;
 		assert(p(s, context));
-		assert(context);
+		assert(context().get!bool);
 		s = "false";
 		assert(p(s, context));
-		assert(!cast(bool)context);
+		assert(!context().get!bool);
 	}
 }
 class IfStmtParser: ContextParser!(TplIfEl)
 {
 	protected:
 		ExprParser expr;
+
 	public:
 		this (ScriptParser script)
 		{
+			expr = new ExprParser;
 			auto elseStmt
 				= doBlockBgn
 				>> *space
@@ -427,7 +553,6 @@ class IfStmtParser: ContextParser!(TplIfEl)
 				>> *space
 				>> doBlockEnd
 				;
-			expr = new ExprParser;
 			parser
 				= (doBlockBgn
 				>> *space
@@ -442,20 +567,9 @@ class IfStmtParser: ContextParser!(TplIfEl)
 				)
 				;
 		}
-		IfStmtParser assign (string name, VariantProxy value)
-		{
-			expr.assign(name, value);
-			return this;
-		}
-		IfStmtParser register (string name, Variant function (Variant) modifier)
-		{
-			expr.register(name, modifier);
-			return this;
-		}
 
 	unittest
 	{
-		writeln("111");
 		scope t = new Test!IfStmtParser;
 		auto tpl = new Tornado;
 		auto p = new IfStmtParser(tpl.parser);
@@ -465,12 +579,47 @@ class IfStmtParser: ContextParser!(TplIfEl)
 		assert(context.expr);
 		s = "{% if false %}abc{% else %}def{% endif %}";
 		assert(p(s, context));
-		assert(!cast(bool)context.expr);
+		assert(!context.expr().get!bool);
 		assert(1 == context.ifEls.length);
-		assert("abc" == context.ifEls[0].execute);
+		assert("abc" == context.ifEls[0]());
 		assert(1 == context.elseEls.length);
-		assert("def" == context.elseEls[0].execute);
+		assert("def" == context.elseEls[0]());
 	}
+}
+
+class ForeachStmtParser: ContextParser!(TplForeachEl)
+{
+	protected:
+	public:
+		this (ScriptParser script)
+		{
+			auto foreachStmt
+				= doBlockBgn
+				>> *space
+				>> "foreach"
+				>> +space
+				>> (id[(string s){ context.keyVar = s; }] >> *space >> ',')
+				>> id[(string s){ context.valVar = s; }]
+				>> +space
+				>> "in"
+				>> +space
+				>> id[(string s){ context.exprVar = s; }]
+				>> *space
+				>> doBlockEnd
+				;
+			auto endForeachStmt
+				= doBlockBgn
+				>> *space
+				>> "endforeach"
+				>> *space
+				>> doBlockEnd
+				;
+			parser
+				= foreachStmt
+				>> lazy_(&script)[{ context.els = script.context.els; }]
+				>> endForeachStmt
+				;
+		}
 }
 
 class ScriptParser: ContextParser!(ScriptContext)
@@ -482,7 +631,6 @@ class ScriptParser: ContextParser!(ScriptContext)
 		this ()
 		{
 			auto comment =  commentBlockBgn >> *(-commentBlockEnd) >> commentBlockEnd;
-			auto p = this;
 			ifStmt = new IfStmtParser(this);
 			parser
 				= (
@@ -492,16 +640,6 @@ class ScriptParser: ContextParser!(ScriptContext)
 					)
 				)[{ context.closeContentBlock; context.els.length = context.elsCnt; }]
 				;
-		}
-		ScriptParser assign (string name, VariantProxy value)
-		{
-			ifStmt.assign(name, value);
-			return this;
-		}
-		ScriptParser register (string name, Variant function (Variant) modifier)
-		{
-			ifStmt.register(name, modifier);
-			return this;
 		}
 		
 	unittest
@@ -520,8 +658,86 @@ class ScriptParser: ContextParser!(ScriptContext)
 		c = new ScriptContext;
 		assert(p(s, c));
 		assert(1 == c.els.length);
+		writeln(c.els[0]());
 		assert("no" == c.els[0]());
 	}
+}
+
+/++
+ + Modifiers
+ +/
+
+void upperModifier (ref Variant v, Variant[] params)
+{
+	v = toupper(v.get!string);
+}
+
+void lowerModifier (ref Variant v, Variant[] params)
+{
+	v = tolower(v.get!string);
+}
+
+void sliceModifier (ref Variant v, Variant[] params)
+{
+	int from, to;
+	if (params[0].type == typeid(int))
+		from = params[0].get!int;
+	else if (params[0].type == typeid(uint))
+		from = params[0].get!uint;
+	else
+		throw new InvalidModifierParamTypeError("slice (first parameter)");
+	string s = v.get!string;
+	if (params.length > 1)
+	{
+		if (params[1].type == typeid(int))
+			to = params[1].get!int;
+		else if (params[1].type == typeid(uint))
+			to = params[1].get!uint;
+		else
+			throw new InvalidModifierParamTypeError("slice (second parameter)");
+	}
+	else
+		to = s.length;
+	v = s[from - 1 .. to];
+}
+
+class TornadoState
+{
+	protected:
+		struct VariantProxy
+		{
+			Variant v;
+			this (Variant v)
+			{
+				this.v = v;
+			}
+		}
+		
+		VariantProxy[string] vars;
+		Modifier[string] modifiers;
+
+	public:
+		alias void function (ref Variant, Variant[]) Modifier;
+		
+		Variant var (string name)
+		{
+			auto val = name in vars;
+			return (val is null)? Variant(null) : (*val).v;
+		}
+		TornadoState var (string name, Variant value)
+		{
+			vars[name] = *new VariantProxy(value);
+			return this;
+		}
+		auto modifier (string name)
+		{
+			return modifiers[name];
+		}
+		auto modifier (string name, Modifier modifier)
+		{
+			modifiers[name] = modifier;
+			return this;
+		}
 }
 
 class Tornado: Templater
@@ -529,22 +745,35 @@ class Tornado: Templater
 	protected:
 		ScriptParser parser;
 		ScriptContext context;
+		TornadoState state;
 		
 		string executeScript (TplEl[] els)
 		{
 			auto res = "";
 			foreach (el; els)
-			{
 				res ~= el.execute;
-			}
 			return res;
 		}
 		
 	public:
+		auto modifier (string name)
+		{
+			return state.modifier(name);
+		}
+		auto modifier (string name, TornadoState.Modifier modifier)
+		{
+			state.modifier(name, modifier);
+			return this;
+		}
 		this (string[] tplsDirs = null, WsApi ws = null)
 		{
 			super(tplsDirs, ws);
+			state = new TornadoState;
 			parser = new ScriptParser;
+			state
+				.modifier("upper", &upperModifier)
+				.modifier("lower", &lowerModifier)
+				.modifier("slice", &sliceModifier);
 		}
 		string fetchString (string s)
 		{
@@ -554,17 +783,21 @@ class Tornado: Templater
 				throw new TplParseError(s.length - s2.length);
 			return executeScript(context.els);
 		}
-		bool assign (Type) (string name, Type val)
+		Variant var (string name)
+		{
+			return state.var(name);
+		}
+		Tornado var (string name, Variant val)
+		{
+			state.var(name, val);
+			return this;
+		}
+		auto assign (Type) (string name, Type val)
 		{
 			static if (is(Type == Variant))
-				parser.assign(name, *new VariantProxy(val));
+				var(name, val);
 			else
-				parser.assign(name, *new VariantProxy(Variant(val)));
-			return true;
-		}
-		Tornado register (string name, Variant function (Variant) modifier)
-		{
-			parser.register(name, modifier);
+				var(name, Variant(val));
 			return this;
 		}
 		
@@ -592,19 +825,26 @@ class Tornado: Templater
 		//
 		s = "{% if true yes{% else %}no{% endif %}";
 		assertThrows!TplParseError({ tpl.fetchString(s); });
-		// With functions
+		// With modifiers
 		tpl.assign("testStr", "testVal");
 		s = "abcdef{% if testStr|upper == \"TESTVAL\" %}gh{% else %}334{% endif %}wqw";
-		assertThrows!InvalidModifierError({ tpl.fetchString(s); });
-		tpl.register("upper", (Variant v){ return Variant(toupper(v.get!string)); });
 		assert("abcdefghwqw" == tpl.fetchString(s));
+		s = "abcdef{% if testStr|upper|lower == \"testval\" %}gh{% else %}334{% endif %}wqw";
+		assert("abcdefghwqw" == tpl.fetchString(s));
+		s = "abcdef{% if testStr|slice:2:4 == \"est\" %}gh{% else %}334{% endif %}wqw";
+		assert("abcdefghwqw" == tpl.fetchString(s));
+		// Foreach
+		tpl.assign("testForeach", ["a", "b", "c", "d"]);
+		s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
+		assert("11abcd22" == tpl.fetchString(s));
 	}
 }
 
-static Parser doBlockBgn, doBlockEnd, commentBlockBgn, commentBlockEnd;
+static Parser doBlockBgn, doBlockEnd, commentBlockBgn, commentBlockEnd, id;
 
 static this ()
 {
+	id = alpha >> *alnum;
 	doBlockBgn = string_("{%");
 	doBlockEnd = string_("%}");
 	commentBlockBgn = string_("{#");
