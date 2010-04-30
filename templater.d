@@ -184,7 +184,7 @@ private class VarExpr: Expr
 		VarExpr applyModifiersCalls (ref Variant v, TornadoState state)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -225,7 +225,7 @@ private class VarExpr: Expr
 		Variant opCall (TornadoState state = null)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -275,7 +275,7 @@ private class OpExpr: Expr
 		Variant opCall (TornadoState state = null)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -330,12 +330,13 @@ private class TplIfEl: TplEl
 		string execute (TornadoState state = null)
 		in
 		{
-			assert(expr);
+			assert(expr !is null);
 		}
 		body
 		{
 			auto res = "";
-			foreach (el; expr().get!bool? ifEls : elseEls)
+			auto v = expr(state);
+			foreach (el; (v.hasValue && v.type != typeid(null) && v.get!bool)? ifEls : elseEls)
 				res ~= el.execute(state);
 			return res;
 		}
@@ -491,7 +492,7 @@ class AtomicExprParser: ContextParser!(RefExpr)
 			simpleExpr = new SimpleExprParser;
 			varP = new VarParser;
 			parser
-				= simpleExpr.trace("simpleExpr")[{ context.expr = simpleExpr.context; }]
+				= simpleExpr[{ context.expr = simpleExpr.context; }]
 				| varP[{ context.expr = varP.context; }]
 				;
 		}
@@ -549,16 +550,16 @@ class IfStmtParser: ContextParser!(TplIfEl)
 			auto endIfStmt
 				= doBlockBgn
 				>> *space
-				>> string_("endif")
+				>> "endif"
 				>> *space
 				>> doBlockEnd
 				;
 			parser
 				= (doBlockBgn
 				>> *space
-				>> string_("if")
+				>> "if"
 				>> +space
-				>> expr.trace("expr")[{ context.expr = expr.context; }]
+				>> expr[{ context.expr = expr.context; }]
 				>> *space
 				>> doBlockEnd
 				>> lazy_(&script)[{ context.ifEls = script.context.els; }]
@@ -658,7 +659,6 @@ class ScriptParser: ContextParser!(ScriptContext)
 		c = new ScriptContext;
 		assert(p(s, c));
 		assert(1 == c.els.length);
-		writeln(c.els[0]());
 		assert("no" == c.els[0]());
 	}
 }
@@ -751,7 +751,7 @@ class Tornado: Templater
 		{
 			auto res = "";
 			foreach (el; els)
-				res ~= el.execute;
+				res ~= el.execute(state);
 			return res;
 		}
 		
@@ -834,9 +834,9 @@ class Tornado: Templater
 		s = "abcdef{% if testStr|slice:2:4 == \"est\" %}gh{% else %}334{% endif %}wqw";
 		assert("abcdefghwqw" == tpl.fetchString(s));
 		// Foreach
-		tpl.assign("testForeach", ["a", "b", "c", "d"]);
-		s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
-		assert("11abcd22" == tpl.fetchString(s));
+		//tpl.assign("testForeach", ["a", "b", "c", "d"]);
+		//s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
+		//assert("11abcd22" == tpl.fetchString(s));
 	}
 }
 
