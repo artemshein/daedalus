@@ -321,6 +321,19 @@ private class TplContent: TplEl
 			return content;
 		}
 }
+
+private class TplPrintEl: TplEl
+{
+	public:
+		Expr expr;
+		
+		string execute (TornadoState state = null)
+		{
+			auto v = expr(state);
+			return (v.type == typeid(string))? v.get!string : to!string(v);
+		}
+}
+
 private class TplIfEl: TplEl
 {
 	public:
@@ -364,7 +377,7 @@ private class TplForeachEl: TplEl
 		string execute (TornadoState state = null)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -460,7 +473,7 @@ class ModifierParser: ContextParser!(VarExpr.ModifierCall)
 			simpleExpr = new SimpleExprParser;
 			parser
 				= char_('|')
-				>> (alpha >> *alnum)[(string s){ context.name = s; }]
+				>> id[(string s){ context.name = s; }]
 				>> *(
 					char_(':') >> simpleExpr[{ context.appendParam(simpleExpr.context); }]
 				)
@@ -480,6 +493,7 @@ class VarParser: ContextParser!(VarExpr)
 				;
 		}
 }
+
 class AtomicExprParser: ContextParser!(RefExpr)
 {
 	protected:
@@ -497,6 +511,7 @@ class AtomicExprParser: ContextParser!(RefExpr)
 				;
 		}
 }
+
 class ExprParser: ContextParser!(RefExpr)
 {
 	protected:
@@ -510,7 +525,7 @@ class ExprParser: ContextParser!(RefExpr)
 				=
 				(	atomicExpr[{ auto expr = new OpExpr; expr.left = atomicExpr.context; context.expr = expr; }]
 					>> *space
-					>> (string_(">") | string_(">=") | string_("<") | string_("<=") | string_("=="))[(string s){ (cast(OpExpr)context.expr).op = s; }]
+					>> (string_(">") | ">=" | "<" | "<=" | "==")[(string s){ (cast(OpExpr)context.expr).op = s; }]
 					>> *space
 					>> atomicExpr[{ (cast(OpExpr)context.expr).right = atomicExpr.context; }]
 				)
@@ -531,6 +546,7 @@ class ExprParser: ContextParser!(RefExpr)
 		assert(!context().get!bool);
 	}
 }
+
 class IfStmtParser: ContextParser!(TplIfEl)
 {
 	protected:
@@ -543,7 +559,7 @@ class IfStmtParser: ContextParser!(TplIfEl)
 			auto elseStmt
 				= doBlockBgn
 				>> *space
-				>> string_("else")
+				>> "else"
 				>> *space
 				>> doBlockEnd
 				;
@@ -588,6 +604,36 @@ class IfStmtParser: ContextParser!(TplIfEl)
 	}
 }
 
+class PrintStmtParser: ContextParser!(TplPrintEl)
+{
+	protected:
+		AtomicExprParser atomicExpr;
+	public:
+		this ()
+		{
+			atomicExpr = new AtomicExprParser;
+			parser
+				= printBlockBgn.trace("{{")
+				>> *space
+				>> atomicExpr[{ context.expr = atomicExpr.context; }]
+				>> *space
+				>> printBlockEnd.trace("}}")
+				;
+		}
+		
+	unittest
+	{
+		scope t = new Test!PrintStmtParser;
+		auto p = new PrintStmtParser;
+		auto s = "{{ i }}";
+		auto state = new TornadoState;
+		state.var("i", Variant(123));
+		auto context = new TplPrintEl;
+		assert(p(s, context));
+		assert("123" == context(state));
+	}
+}
+
 class ForeachStmtParser: ContextParser!(TplForeachEl)
 {
 	protected:
@@ -595,49 +641,64 @@ class ForeachStmtParser: ContextParser!(TplForeachEl)
 		this (ScriptParser script)
 		{
 			auto foreachStmt
-				= doBlockBgn
+				= doBlockBgn.trace("{%")
 				>> *space
-				>> "foreach"
+				>> string_("foreach").trace("foreach")
 				>> +space
-				>> (id[(string s){ context.keyVar = s; }] >> *space >> ',')
+				>> ~(id.trace("id")[(string s){ context.keyVar = s; }] >> *space >> ',' >> *space)
 				>> id[(string s){ context.valVar = s; }]
 				>> +space
-				>> "in"
+				>> string_("in").trace("in")
 				>> +space
 				>> id[(string s){ context.exprVar = s; }]
 				>> *space
-				>> doBlockEnd
+				>> doBlockEnd.trace("%}")
 				;
 			auto endForeachStmt
 				= doBlockBgn
 				>> *space
-				>> "endforeach"
+				>> string_("endforeach").trace("endforeach")
 				>> *space
 				>> doBlockEnd
 				;
 			parser
-				= foreachStmt
+				= foreachStmt.trace("foreachStmt")
 				>> lazy_(&script)[{ context.els = script.context.els; }]
-				>> endForeachStmt
+				>> endForeachStmt.trace("endForeachStm")
 				;
 		}
+		
+	unittest
+	{
+		scope t = new Test!ForeachStmtParser;
+		auto tpl = new Tornado;
+		tpl.assign("test", ["a", "b", "c", "d"]);
+		auto s = "--{% foreach i, v in test %}{{ i }}:{{ v }}|{% endforeach %}++";
+		assert("--0:a|1:b|2:c|3:d|++" == tpl.fetchString(s));
+	}
 }
 
 class ScriptParser: ContextParser!(ScriptContext)
 {
 	protected:
 		IfStmtParser ifStmt;
+		ForeachStmtParser foreachStmt;
+		PrintStmtParser printStmt;
 		
 	public:
 		this ()
 		{
 			auto comment =  commentBlockBgn >> *(-commentBlockEnd) >> commentBlockEnd;
 			ifStmt = new IfStmtParser(this);
+			foreachStmt = new ForeachStmtParser(this);
+			printStmt = new PrintStmtParser;
 			parser
 				= (
 				*	( comment
-					| ifStmt[{ context.appendElement(ifStmt.context); }]
-					| (anychar - (doBlockBgn | commentBlockBgn))[(char ch){ context.appendContent(ch); }]
+					| ifStmt.trace("ifStmt")[{ context.appendElement(ifStmt.context); }]
+					| foreachStmt.trace("foreachStmt")[{ context.appendElement(foreachStmt.context); }]
+					| printStmt.trace("printStmt")[{ context.appendElement(printStmt.context); }]
+					| (anychar - (doBlockBgn | commentBlockBgn | printBlockBgn))[(char ch){ context.appendContent(ch); }]
 					)
 				)[{ context.closeContentBlock; context.els.length = context.elsCnt; }]
 				;
@@ -834,13 +895,15 @@ class Tornado: Templater
 		s = "abcdef{% if testStr|slice:2:4 == \"est\" %}gh{% else %}334{% endif %}wqw";
 		assert("abcdefghwqw" == tpl.fetchString(s));
 		// Foreach
-		//tpl.assign("testForeach", ["a", "b", "c", "d"]);
-		//s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
-		//assert("11abcd22" == tpl.fetchString(s));
+		tpl.assign("testForeach", ["a", "b", "c", "d"]);
+		s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
+		assert("11abcd22" == tpl.fetchString(s));
+		s = "({% foreach v in testForeach %}[{% if v == "c" %}{{ v|upper }}!{% else %}{{ v }}{% endif %}]{% endforeach %})";
+		assert("([a][b][C!][d])" == tpl.fetchString(s));
 	}
 }
 
-static Parser doBlockBgn, doBlockEnd, commentBlockBgn, commentBlockEnd, id;
+static Parser doBlockBgn, doBlockEnd, commentBlockBgn, commentBlockEnd, printBlockBgn, printBlockEnd, id;
 
 static this ()
 {
@@ -849,4 +912,6 @@ static this ()
 	doBlockEnd = string_("%}");
 	commentBlockBgn = string_("{#");
 	commentBlockEnd = string_("#}");
+	printBlockBgn = string_("{{");
+	printBlockEnd = string_("}}");
 }
