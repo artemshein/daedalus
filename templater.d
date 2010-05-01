@@ -184,7 +184,7 @@ private class VarExpr: Expr
 		VarExpr applyModifiersCalls (ref Variant v, TornadoState state)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -225,7 +225,7 @@ private class VarExpr: Expr
 		Variant opCall (TornadoState state = null)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -275,7 +275,7 @@ private class OpExpr: Expr
 		Variant opCall (TornadoState state = null)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -330,12 +330,13 @@ private class TplIfEl: TplEl
 		string execute (TornadoState state = null)
 		in
 		{
-			assert(expr);
+			assert(expr !is null);
 		}
 		body
 		{
 			auto res = "";
-			foreach (el; expr().get!bool? ifEls : elseEls)
+			auto v = expr(state);
+			foreach (el; (v.hasValue && (v.type != typeid(null)) && v.get!bool)? ifEls : elseEls)
 				res ~= el.execute(state);
 			return res;
 		}
@@ -354,6 +355,18 @@ string foreachIfStmt (string Type) ()
 	}";
 }
 
+private class TplPrintEl: TplEl
+{
+	public:
+		Expr expr;
+		
+		string execute (TornadoState state = null)
+		{
+			auto v = expr(state);
+			return v.toString;
+		}
+}
+
 private class TplForeachEl: TplEl
 {
 	public:
@@ -363,7 +376,7 @@ private class TplForeachEl: TplEl
 		string execute (TornadoState state = null)
 		in
 		{
-			assert(state);
+			assert(state !is null);
 		}
 		body
 		{
@@ -439,7 +452,7 @@ class SimpleExprParser: ContextParser!(RefExpr)
 				| string_("false")[{ context.expr = new BoolExpr(false); }]
 				| uint_[(uint v){ context.expr = new UintExpr(v); }]
 				| int_[(int v){ context.expr = new IntExpr(v); }]
-				| (char_('"') >> *(string_("\\\"") | -char_('"')) >> char_('"'))[(string s){ context.expr = new StrExpr(parseString(s)); }]
+				| ('"' >> *(string_("\\\"") | -char_('"')) >> '"')[(string s){ context.expr = new StrExpr(parseString(s)); }]
 				;
 		}
 		static string parseString (string s)
@@ -458,10 +471,10 @@ class ModifierParser: ContextParser!(VarExpr.ModifierCall)
 		{
 			simpleExpr = new SimpleExprParser;
 			parser
-				= char_('|')
-				>> (alpha >> *alnum)[(string s){ context.name = s; }]
+				= '|'
+				>> id[(string s){ context.name = s; }]
 				>> *(
-					char_(':') >> simpleExpr[{ context.appendParam(simpleExpr.context); }]
+					':' >> simpleExpr[{ context.appendParam(simpleExpr.context); }]
 				)
 				;
 		}
@@ -491,7 +504,7 @@ class AtomicExprParser: ContextParser!(RefExpr)
 			simpleExpr = new SimpleExprParser;
 			varP = new VarParser;
 			parser
-				= simpleExpr.trace("simpleExpr")[{ context.expr = simpleExpr.context; }]
+				= simpleExpr[{ context.expr = simpleExpr.context; }]
 				| varP[{ context.expr = varP.context; }]
 				;
 		}
@@ -509,7 +522,7 @@ class ExprParser: ContextParser!(RefExpr)
 				=
 				(	atomicExpr[{ auto expr = new OpExpr; expr.left = atomicExpr.context; context.expr = expr; }]
 					>> *space
-					>> (string_(">") | string_(">=") | string_("<") | string_("<=") | string_("=="))[(string s){ (cast(OpExpr)context.expr).op = s; }]
+					>> (string_(">") | ">=" | "<" | "<=" | "==")[(string s){ (cast(OpExpr)context.expr).op = s; }]
 					>> *space
 					>> atomicExpr[{ (cast(OpExpr)context.expr).right = atomicExpr.context; }]
 				)
@@ -542,29 +555,28 @@ class IfStmtParser: ContextParser!(TplIfEl)
 			auto elseStmt
 				= doBlockBgn
 				>> *space
-				>> string_("else")
+				>> "else"
 				>> *space
 				>> doBlockEnd
 				;
 			auto endIfStmt
 				= doBlockBgn
 				>> *space
-				>> string_("endif")
+				>> "endif"
 				>> *space
 				>> doBlockEnd
 				;
 			parser
-				= (doBlockBgn
+				= doBlockBgn
 				>> *space
-				>> string_("if")
+				>> "if"
 				>> +space
-				>> expr.trace("expr")[{ context.expr = expr.context; }]
+				>> expr[{ context.expr = expr.context; }]
 				>> *space
 				>> doBlockEnd
 				>> lazy_(&script)[{ context.ifEls = script.context.els; }]
 				>> ~(elseStmt >> lazy_(&script)[{ context.elseEls = script.context.els; }])
 				>> endIfStmt
-				)
 				;
 		}
 
@@ -572,18 +584,50 @@ class IfStmtParser: ContextParser!(TplIfEl)
 	{
 		scope t = new Test!IfStmtParser;
 		auto tpl = new Tornado;
+		auto state = new TornadoState;
 		auto p = new IfStmtParser(tpl.parser);
 		auto s = "{% if true %}{% endif %}";
 		auto context = new TplIfEl;
 		assert(p(s, context));
-		assert(context.expr);
+		assert(context.expr(state).get!bool);
 		s = "{% if false %}abc{% else %}def{% endif %}";
 		assert(p(s, context));
-		assert(!context.expr().get!bool);
+		assert(!context.expr(state).get!bool);
 		assert(1 == context.ifEls.length);
 		assert("abc" == context.ifEls[0]());
 		assert(1 == context.elseEls.length);
 		assert("def" == context.elseEls[0]());
+	}
+}
+
+class PrintStmtParser: ContextParser!(TplPrintEl)
+{
+	protected:
+		AtomicExprParser atomicExpr;
+
+	public:
+		this ()
+		{
+			atomicExpr = new AtomicExprParser;
+			parser
+				= printBlockBgn
+				>> *space
+				>> atomicExpr[{ context.expr = atomicExpr.context; }]
+				>> *space
+				>> printBlockEnd
+				;
+		}
+		
+	unittest
+	{
+		scope t = new Test!PrintStmtParser;
+		auto p = new PrintStmtParser;
+		auto state = new TornadoState;
+		state.var("i", Variant(123));
+		auto s = "{{ i }}";
+		auto context = new TplPrintEl;
+		assert(p(s, context));
+		assert("123" == context(state));
 	}
 }
 
@@ -598,7 +642,7 @@ class ForeachStmtParser: ContextParser!(TplForeachEl)
 				>> *space
 				>> "foreach"
 				>> +space
-				>> (id[(string s){ context.keyVar = s; }] >> *space >> ',')
+				>> ~(id[(string s){ context.keyVar = s; }] >> *space >> ',' >> +space)
 				>> id[(string s){ context.valVar = s; }]
 				>> +space
 				>> "in"
@@ -626,17 +670,24 @@ class ScriptParser: ContextParser!(ScriptContext)
 {
 	protected:
 		IfStmtParser ifStmt;
+		ForeachStmtParser foreachStmt;
+		PrintStmtParser printStmt;
 		
 	public:
 		this ()
 		{
 			auto comment =  commentBlockBgn >> *(-commentBlockEnd) >> commentBlockEnd;
 			ifStmt = new IfStmtParser(this);
+			foreachStmt = new ForeachStmtParser(this);
+			printStmt = new PrintStmtParser;
+			
 			parser
 				= (
 				*	( comment
 					| ifStmt[{ context.appendElement(ifStmt.context); }]
-					| (anychar - (doBlockBgn | commentBlockBgn))[(char ch){ context.appendContent(ch); }]
+					| foreachStmt[{ context.appendElement(foreachStmt.context); }]
+					| printStmt[{ context.appendElement(printStmt.context); }]
+					| (anychar - (commentBlockBgn | doBlockBgn | printBlockBgn))[(char ch){ context.appendContent(ch); }]
 					)
 				)[{ context.closeContentBlock; context.els.length = context.elsCnt; }]
 				;
@@ -658,7 +709,6 @@ class ScriptParser: ContextParser!(ScriptContext)
 		c = new ScriptContext;
 		assert(p(s, c));
 		assert(1 == c.els.length);
-		writeln(c.els[0]());
 		assert("no" == c.els[0]());
 	}
 }
@@ -751,7 +801,7 @@ class Tornado: Templater
 		{
 			auto res = "";
 			foreach (el; els)
-				res ~= el.execute;
+				res ~= el.execute(state);
 			return res;
 		}
 		
@@ -837,10 +887,13 @@ class Tornado: Templater
 		tpl.assign("testForeach", ["a", "b", "c", "d"]);
 		s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
 		assert("11abcd22" == tpl.fetchString(s));
+		s = "({% foreach i, v in testForeach %}[{% if v|upper == \"C\" %}{{ i }}:{{ v }}{% else %}{{ v }}{% endif %}]{% endforeach %})";
+		writeln(tpl.fetchString(s));
+		assert("([a][b][2:c][d])" == tpl.fetchString(s));
 	}
 }
 
-static Parser doBlockBgn, doBlockEnd, commentBlockBgn, commentBlockEnd, id;
+static Parser doBlockBgn, doBlockEnd, commentBlockBgn, commentBlockEnd, printBlockBgn, printBlockEnd, id;
 
 static this ()
 {
@@ -849,4 +902,6 @@ static this ()
 	doBlockEnd = string_("%}");
 	commentBlockBgn = string_("{#");
 	commentBlockEnd = string_("#}");
+	printBlockBgn = string_("{{");
+	printBlockEnd = string_("}}");
 }

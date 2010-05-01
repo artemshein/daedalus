@@ -177,6 +177,7 @@ abstract class Parser
 		OrParser opOr (Parser p) { return new OrParser([this, p]); }
 		OrParser opOr (Parser* p) { return this | lazy_(p); }
 		OrParser opOr (char ch) { return this | char_(ch); }
+		OrParser opOr (string str) { return this | string_(str); }
 		// Separated by parser (p % p)
 		SequenceParser opMod (char ch) { return this % char_(ch); }
 		SequenceParser opMod (string str) { return this % string_(str); }
