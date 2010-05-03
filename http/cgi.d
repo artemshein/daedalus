@@ -1,12 +1,14 @@
+/**
+ * HTTP web-server CGI
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2009 - 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module http.cgi;
 
-import std.stdio : write, writeln, writef, writefln, stdin;
-import std.algorithm : startsWith;
-import std.string : indexOf, split, strip;
-import std.conv : to;
-import std.uri : decode;
-import http.wsapi : WsApi;
-import func : passArguments;
+import std.stdio, std.stdarg, std.algorithm, std.string, std.conv, std.uri;
+import http.wsapi, func;
 
 class Cgi: WsApi
 {
@@ -105,24 +107,47 @@ class Cgi: WsApi
 	public:
 		WsApi write (...)
 		{
-			mixin(passArguments("write"));
+			string castToTypeAndWrite (string type)
+			{
+				return " if (typeid(" ~ type ~ ") == arg) std.stdio.write(to!(string)(va_arg!(" ~ type ~ ")(_argptr))); ";
+			}
+			foreach (arg; _arguments)
+				mixin(castToTypeAndWrite("string")
+				~ "else" ~ castToTypeAndWrite("byte")
+				~ "else" ~ castToTypeAndWrite("ubyte")
+				~ "else" ~ castToTypeAndWrite("short")
+				~ "else" ~ castToTypeAndWrite("ushort")
+				~ "else" ~ castToTypeAndWrite("int")
+				~ "else" ~ castToTypeAndWrite("uint")
+				~ "else" ~ castToTypeAndWrite("long")
+				~ "else" ~ castToTypeAndWrite("ulong")
+				~ "else" ~ castToTypeAndWrite("float")
+				~ "else" ~ castToTypeAndWrite("double")
+				~ "else" ~ castToTypeAndWrite("void[]")
+				~ "else throw new Exception(\"not implemented for write\");");
+			return this;
+		}
+		/+WsApi write (...)
+		{
+			.writeln("hohoho");
+			mixin(passArguments("std.stdio.write"));
 			return this;
 		}
 		WsApi writef (...)
 		{
-			mixin(passArguments("writef"));
+			mixin(passArguments("std.stdio.writef"));
 			return this;
 		}
 		WsApi writeln (...)
 		{
-			mixin(passArguments("writeln"));
+			mixin(passArguments("std.stdio.writeln"));
 			return this;
 		}
 		WsApi writefln (...)
 		{
-			mixin(passArguments("writefln"));
+			mixin(passArguments("std.stdio.writefln"));
 			return this;
-		}
+		}+/
 		WsApi sendHeaders ()
 		{
 			WsApi.sendHeaders();

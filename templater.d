@@ -1,13 +1,27 @@
+/**
+ * Templater
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2009 - 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
+
 module templater;
 
 debug = templater;
 
 import std.variant, std.file, std.conv, std.string;
-import http.wsapi : WsApi;
-import parser;
+import http.wsapi, parser;
 version(unittest) import qc;
 debug(templater) import std.stdio;
 
+class TemplateNotFoundedError: Error
+{
+	this (string fileName, string[] searchDirs)
+	{
+		super("template " ~ fileName ~ " not founded in " ~ cast(string)searchDirs);
+	}
+}
 
 abstract class Templater
 {
@@ -23,14 +37,30 @@ abstract class Templater
 		}
 		string fetch (string fileName)
 		{
-			return fetchString(cast(string)read(fileName));
+			foreach (dir; tplsDirs)
+				if (exists(dir ~ fileName))
+				{
+					auto s = cast(string)read(dir ~ fileName);
+					return fetchString(s);
+				}
+			throw new TemplateNotFoundedError(fileName, tplsDirs);
 		}
 		bool display (string fileName)
+		in
+		{
+			assert(ws !is null);
+		}
+		body
 		{
 			ws.write(fetch(fileName));
 			return true;
 		}
 		bool displayString (string s)
+		in
+		{
+			assert(ws !is null);
+		}
+		body
 		{
 			ws.write(fetchString(s));
 			return true;
@@ -45,35 +75,35 @@ abstract class TplError: Error
 {
 	this ()
 	{
-		super("Template error", file, line);
+		this("template error");
 	}
 	this (string msg)
 	{
-		super(msg, file, line);
+		super(msg);
 	}
-	this (string msg, string file, size_t line)
-	{
+    this (string msg, string file, size_t line)
+    {
 		super(msg, file, line);
 	}
 }
 
 class TplParseError: TplError
 {
-	this (uint pos)
+	this (size_t pos)
 	{
-		super("Invalid template at " ~ to!string(pos), file, line);
+		super("parse error at " ~ to!string(pos));
+	}
+	this (size_t pos, string file, size_t line)
+	{
+		super("parse error at " ~ to!string(pos), file, line);
 	}
 }
 
 abstract class TplExecutionError: TplError
 {
-	this ()
-	{
-		super("Template execution error", file, line);
-	}
 	this (string msg)
 	{
-		super(msg, file, line);
+		super(msg);
 	}
 	this (string msg, string file, size_t line)
 	{
@@ -83,25 +113,41 @@ abstract class TplExecutionError: TplError
 
 class InvalidModifierError: TplExecutionError
 {
-	this (string file, size_t line)
+	this ()
 	{
-		super("Invalid modifier", file, line);
+		super("invlid modifier error");
 	}
-	this (string name)
+	this (string info)
 	{
-		super("Invalid modifier " ~ name, file, line);
+		super("invalid modifier " ~ info);
 	}
 }
 
 class InvalidModifierParamTypeError: TplExecutionError
 {
-	this (string file, size_t line)
+	this (string msg)
 	{
-		super("Invalid parameter for modifier", file, line);
+		super(msg);
 	}
-	this (string info)
+	this (string msg, string file, size_t line)
 	{
-		super("Invalid parameter for modifier " ~ info, file, line);
+		super(msg, file, line);
+	}
+}
+
+class IndexingError: TplExecutionError
+{
+	this (TypeInfo t)
+	{
+		super(t.toString);
+	}
+	this (TypeInfo t, string file, size_t line)
+	{
+		super(t.toString, file, line);
+	}
+	this (TypeInfo vT, TypeInfo iT, string file, size_t line)
+	{
+		super("index " ~ iT.toString ~ " on " ~ vT.toString, file, line);
 	}
 }
 
@@ -115,6 +161,11 @@ private class RefExpr: Expr
 	public:
 		Expr expr;
 
+		this () {}
+		this (Expr expr)
+		{
+			this.expr = expr;
+		}
 		Variant opCall (TornadoState state = null)
 		{
 			return expr(state);
@@ -201,6 +252,48 @@ private class VarExpr: Expr
 			}
 			return this;
 		}
+		VarExpr applyIndexes (ref Variant v, TornadoState state)
+		in
+		{
+			assert(state !is null);
+		}
+		body
+		{
+			foreach (index; indexes)
+			{
+				Variant i = index(state);
+				auto vT = v.type;
+				auto iT = i.type;
+				if (vT == typeid(string))
+				{
+					if (iT == typeid(uint))
+						v = v.get!string[i.get!uint - 1];
+					else if (iT == typeid(int))
+						v = v.get!string[i.get!int - 1];
+					else
+						throw new IndexingError(vT, iT, __FILE__, __LINE__);
+				}
+				else if (vT == typeid(Variant[string]))
+				{
+					if (iT == typeid(string))
+						v = v.get!(Variant[string])[i.get!string];
+					else
+						throw new IndexingError(vT, iT, __FILE__, __LINE__);
+				}
+				else if (vT == typeid(string[]))
+				{
+					if (iT == typeid(uint))
+						v = v.get!(string[])[i.get!uint - 1];
+					else if (iT == typeid(int))
+						v = v.get!(string[])[i.get!int - 1];
+					else
+						throw new IndexingError(vT, iT, __FILE__, __LINE__);
+				}
+				else
+					throw new IndexingError(vT, __FILE__, __LINE__);
+			}
+			return this;
+		}
 		
 	public:
 		static
@@ -220,6 +313,7 @@ private class VarExpr: Expr
 		}
 		
 		string name;
+		RefExpr[] indexes;
 		ModifierCall[] modifiersCalls;
 	
 		Variant opCall (TornadoState state = null)
@@ -230,6 +324,7 @@ private class VarExpr: Expr
 		body
 		{
 			auto v = state.var(name);
+			applyIndexes(v, state);
 			applyModifiersCalls(v, state);
 			return v;
 		}
@@ -321,6 +416,7 @@ private class TplContent: TplEl
 			return content;
 		}
 }
+
 private class TplIfEl: TplEl
 {
 	public:
@@ -486,12 +582,33 @@ class VarParser: ContextParser!(VarExpr)
 		this ()
 		{
 			auto modifier = new ModifierParser;
+			auto simpleExpr = new SimpleExprParser;
+			RefExpr refExpr;
 			parser
 				= id[(string id){ context.name = id; }]
+				>> *(('.' >> id[(string id){ context.indexes ~= new RefExpr(new StrExpr(id)); }])
+					| ('[' >> simpleExpr[{ refExpr = simpleExpr.context; }] >> ']')[{ context.indexes ~= refExpr; }]
+					)
 				>> *(modifier[{ context.addModifierCall(modifier.context); }])
 				;
 		}
+		
+	unittest
+	{
+		scope t = new Test!VarParser;
+		auto state = new TornadoState;
+		auto p = new VarParser;
+		auto context = new VarExpr;
+		auto s = "abc245.efgh45.bca[3][1]";
+		assert(p(s, context));
+		string[] bca = ["a1", "b2", "c3", "d4"];
+		Variant[string] efgh45 = ["bca": Variant(bca)];
+		Variant[string] abc245 = ["efgh45": Variant(efgh45)];
+		state.var("abc245", Variant(abc245));
+		assert('c' == context(state));
+	}
 }
+
 class AtomicExprParser: ContextParser!(RefExpr)
 {
 	protected:
@@ -509,6 +626,7 @@ class AtomicExprParser: ContextParser!(RefExpr)
 				;
 		}
 }
+
 class ExprParser: ContextParser!(RefExpr)
 {
 	protected:
@@ -543,6 +661,7 @@ class ExprParser: ContextParser!(RefExpr)
 		assert(!context().get!bool);
 	}
 }
+
 class IfStmtParser: ContextParser!(TplIfEl)
 {
 	protected:
@@ -828,7 +947,7 @@ class Tornado: Templater
 		string fetchString (string s)
 		{
 			auto context = new ScriptContext;
-			auto s2 = s.idup;
+			string s2 = s;
 			if (!parser(s2, context) || s2.length)
 				throw new TplParseError(s.length - s2.length);
 			return executeScript(context.els);
@@ -888,7 +1007,6 @@ class Tornado: Templater
 		s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
 		assert("11abcd22" == tpl.fetchString(s));
 		s = "({% foreach i, v in testForeach %}[{% if v|upper == \"C\" %}{{ i }}:{{ v }}{% else %}{{ v }}{% endif %}]{% endforeach %})";
-		writeln(tpl.fetchString(s));
 		assert("([a][b][2:c][d])" == tpl.fetchString(s));
 	}
 }
