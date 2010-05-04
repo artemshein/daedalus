@@ -1,3 +1,10 @@
+/**
+ * Parsers (based on $(WEB boost.org, Boost::Spirit))
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2009 - 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module parser;
 
 debug = parser;

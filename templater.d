@@ -35,15 +35,16 @@ abstract class Templater
 			this.tplsDirs = tplsDirs;
 			this.ws = ws;
 		}
-		string fetch (string fileName)
+		string tplContent (string fileName)
 		{
 			foreach (dir; tplsDirs)
 				if (exists(dir ~ fileName))
-				{
-					auto s = cast(string)read(dir ~ fileName);
-					return fetchString(s);
-				}
+					return cast(string)read(dir ~ fileName);
 			throw new TemplateNotFoundedError(fileName, tplsDirs);
+		}
+		string fetch (string fileName)
+		{
+			return fetchString(tplContent(fileName));
 		}
 		bool display (string fileName)
 		in
@@ -64,6 +65,14 @@ abstract class Templater
 		{
 			ws.write(fetchString(s));
 			return true;
+		}
+		Templater assign (Type) (string name, Type val)
+		{
+			static if (is(Type == Variant))
+				var(name, val);
+			else
+				var(name, Variant(val));
+			return this;
 		}
 		abstract:
 			string fetchString (string);
@@ -89,11 +98,11 @@ abstract class TplError: Error
 
 class TplParseError: TplError
 {
-	this (size_t pos)
+	this (string s, size_t pos)
 	{
-		super("parse error at " ~ to!string(pos));
+		super("parse error at " ~ to!string(pos) ~ ": " ~ s[0 .. (20 > $ - 1? $ - 1 : 20)]);
 	}
-	this (size_t pos, string file, size_t line)
+	this (string s, size_t pos, string file, size_t line)
 	{
 		super("parse error at " ~ to!string(pos), file, line);
 	}
@@ -153,7 +162,7 @@ class IndexingError: TplExecutionError
 
 private abstract class Expr
 {
-	abstract Variant opCall (TornadoState state = null);
+	abstract Variant opCall (Tornado tpl = null);
 }
 
 private class RefExpr: Expr
@@ -166,9 +175,9 @@ private class RefExpr: Expr
 		{
 			this.expr = expr;
 		}
-		Variant opCall (TornadoState state = null)
+		Variant opCall (Tornado tpl = null)
 		{
-			return expr(state);
+			return expr(tpl);
 		}
 }
 
@@ -179,7 +188,7 @@ private class BoolExpr: Expr
 	{
 		this.v = v;
 	}
-	Variant opCall (TornadoState state = null)
+	Variant opCall (Tornado tpl = null)
 	{
 		return Variant(v);
 	}
@@ -192,7 +201,7 @@ private class UintExpr: Expr
 	{
 		this.v = v;
 	}
-	Variant opCall (TornadoState state = null)
+	Variant opCall (Tornado tpl = null)
 	{
 		return Variant(v);
 	}
@@ -205,7 +214,7 @@ private class IntExpr: Expr
 	{
 		this.v = v;
 	}
-	Variant opCall (TornadoState state = null)
+	Variant opCall (Tornado tpl = null)
 	{
 		return Variant(v);
 	}
@@ -218,7 +227,7 @@ private class StrExpr: Expr
 	{
 		this.v = v;
 	}
-	Variant opCall (TornadoState state = null)
+	Variant opCall (Tornado tpl = null)
 	{
 		return Variant(v);
 	}
@@ -232,19 +241,19 @@ private class VarExpr: Expr
 			modifiersCalls ~= modifierCall;
 			return this;
 		}
-		VarExpr applyModifiersCalls (ref Variant v, TornadoState state)
+		VarExpr applyModifiersCalls (ref Variant v, Tornado tpl)
 		in
 		{
-			assert(state !is null);
+			assert(tpl !is null);
 		}
 		body
 		{
-			auto modifiers = state.modifiers;
+			auto modifiers = tpl.modifiers;
 			foreach (modifierCall; modifiersCalls)
 			{
 				Variant[] params;
 				foreach (param; modifierCall.params)
-					params ~= param(state);
+					params ~= param(tpl);
 				auto modifier = modifierCall.name in modifiers;
 				if (modifier is null)
 					throw new InvalidModifierError(modifierCall.name);
@@ -252,16 +261,16 @@ private class VarExpr: Expr
 			}
 			return this;
 		}
-		VarExpr applyIndexes (ref Variant v, TornadoState state)
+		VarExpr applyIndexes (ref Variant v, Tornado tpl)
 		in
 		{
-			assert(state !is null);
+			assert(tpl !is null);
 		}
 		body
 		{
 			foreach (index; indexes)
 			{
-				Variant i = index(state);
+				Variant i = index(tpl);
 				auto vT = v.type;
 				auto iT = i.type;
 				if (vT == typeid(string))
@@ -316,16 +325,16 @@ private class VarExpr: Expr
 		RefExpr[] indexes;
 		ModifierCall[] modifiersCalls;
 	
-		Variant opCall (TornadoState state = null)
+		Variant opCall (Tornado tpl = null)
 		in
 		{
-			assert(state !is null);
+			assert(tpl !is null);
 		}
 		body
 		{
-			auto v = state.var(name);
-			applyIndexes(v, state);
-			applyModifiersCalls(v, state);
+			auto v = tpl.var(name);
+			applyIndexes(v, tpl);
+			applyModifiersCalls(v, tpl);
 			return v;
 		}
 }
@@ -367,14 +376,14 @@ private class OpExpr: Expr
 		Expr left, right;
 		string op;
 		
-		Variant opCall (TornadoState state = null)
+		Variant opCall (Tornado tpl = null)
 		in
 		{
-			assert(state !is null);
+			assert(tpl !is null);
 		}
 		body
 		{
-			auto l = left(state), r = right(state);
+			auto l = left(tpl), r = right(tpl);
 			switch (op)
 			{
 				case ">":
@@ -395,10 +404,10 @@ private class OpExpr: Expr
 private abstract class TplEl
 {
 	public:
-		abstract string execute (TornadoState state = null);
-		string opCall (TornadoState state = null)
+		abstract string execute (Tornado tpl = null);
+		string opCall (Tornado tpl = null)
 		{
-			return execute(state);
+			return execute(tpl);
 		}
 }
 
@@ -411,21 +420,9 @@ private class TplContent: TplEl
 		{
 			this.content = content;
 		}
-		string execute (TornadoState state = null)
+		string execute (Tornado tpl = null)
 		{
 			return content;
-		}
-}
-
-private class TplPrintEl: TplEl
-{
-	public:
-		Expr expr;
-		
-		string execute (TornadoState state = null)
-		{
-			auto v = expr(state);
-			return (v.type == typeid(string))? v.get!string : to!string(v);
 		}
 }
 
@@ -435,7 +432,7 @@ private class TplIfEl: TplEl
 		Expr expr;
 		TplEl[] ifEls, elseEls;
 		
-		string execute (TornadoState state = null)
+		string execute (Tornado tpl = null)
 		in
 		{
 			assert(expr !is null);
@@ -443,9 +440,9 @@ private class TplIfEl: TplEl
 		body
 		{
 			auto res = "";
-			auto v = expr(state);
+			auto v = expr(tpl);
 			foreach (el; (v.hasValue && v.type != typeid(null) && v.get!bool)? ifEls : elseEls)
-				res ~= el.execute(state);
+				res ~= el.execute(tpl);
 			return res;
 		}
 }
@@ -456,10 +453,10 @@ string foreachIfStmt (string Type) ()
 	"foreach (k, v; val.get!(" ~ Type ~ "))
 	{
 		if (keyVar)
-			state.var(keyVar, Variant(k));
-		state.var(valVar, Variant(v));
+			tpl.assign(keyVar, k);
+		tpl.assign(valVar, v);
 		foreach (el; els)
-			res ~= el.execute(state);
+			res ~= el.execute(tpl);
 	}";
 }
 
@@ -468,10 +465,25 @@ private class TplPrintEl: TplEl
 	public:
 		Expr expr;
 		
-		string execute (TornadoState state = null)
+		string execute (Tornado tpl = null)
 		{
-			auto v = expr(state);
+			auto v = expr(tpl);
 			return v.toString;
+		}
+}
+
+private class TplBlockEl: TplEl
+{
+	public:
+		TplEl[] els;
+		string name;
+		
+		string execute (Tornado tpl = null)
+		{
+			auto res = "";
+			foreach (el; els)
+				res ~= el(tpl);
+			return res;
 		}
 }
 
@@ -481,15 +493,15 @@ private class TplForeachEl: TplEl
 		string keyVar, valVar, exprVar;
 		TplEl[] els;
 		
-		string execute (TornadoState state = null)
+		string execute (Tornado tpl = null)
 		in
 		{
-			assert(state !is null);
+			assert(tpl !is null);
 		}
 		body
 		{
 			auto res = "";
-			Variant val = state.var(exprVar);
+			Variant val = tpl.var(exprVar);
 			if (val.type == typeid(string[]))
 				mixin(foreachIfStmt!"string[]");
 			else if (val.type == typeid(uint[]))
@@ -516,16 +528,43 @@ private class TplForeachEl: TplEl
 		}
 }
 
+private class TplExtendsEl: TplEl
+{
+	public:
+		Expr tplName;
+		
+		string execute (Tornado tpl = null)
+		in
+		{
+			assert(tpl !is null);
+			assert(tpl.context !is null);
+		}
+		body
+		{
+			auto s = tpl.tplContent(tplName(tpl).get!string);
+			auto thisContext = tpl.context;
+			auto context = new ScriptContext;
+			tpl.parse(s, context);
+			foreach (name, block; thisContext.blocks)
+				if (name in context.blocks)
+					context.blocks[name].els = block.els;
+			tpl.context = context;
+			auto res = tpl.context(tpl);
+			tpl.skipMode = true;
+			return res;
+		}
+}
+
 private class ScriptContext
 {
 	protected:
 		uint elsCnt;
 		uint contentBlockCnt;
 		char[] contentBlock;
-		
-	public:
+		TplBlockEl[string] blocks;
 		TplEl[] els;
 		
+	public:		
 		void appendContent (char ch)
 		{
 			if (contentBlockCnt >= contentBlock.length)
@@ -547,6 +586,20 @@ private class ScriptContext
 			if (elsCnt >= els.length)
 				els.length = els.length * 2 + 1;
 			els[elsCnt++] = el;
+		}		
+		string execute (Tornado tpl = null)
+		{
+			auto res = "";
+			foreach (el; els)
+				if (tpl.skipMode)
+					break;
+				else
+					res ~= el.execute(tpl);
+			return res;
+		}
+		string opCall (Tornado tpl = null)
+		{
+			return execute(tpl);
 		}
 }
 
@@ -608,7 +661,7 @@ class VarParser: ContextParser!(VarExpr)
 	unittest
 	{
 		scope t = new Test!VarParser;
-		auto state = new TornadoState;
+		auto tpl = new Tornado;
 		auto p = new VarParser;
 		auto context = new VarExpr;
 		auto s = "abc245.efgh45.bca[3][1]";
@@ -616,8 +669,8 @@ class VarParser: ContextParser!(VarExpr)
 		string[] bca = ["a1", "b2", "c3", "d4"];
 		Variant[string] efgh45 = ["bca": Variant(bca)];
 		Variant[string] abc245 = ["efgh45": Variant(efgh45)];
-		state.var("abc245", Variant(abc245));
-		assert('c' == context(state));
+		tpl.assign("abc245", abc245);
+		assert('c' == context(tpl));
 	}
 }
 
@@ -715,15 +768,14 @@ class IfStmtParser: ContextParser!(TplIfEl)
 	{
 		scope t = new Test!IfStmtParser;
 		auto tpl = new Tornado;
-		auto state = new TornadoState;
 		auto p = new IfStmtParser(tpl.parser);
 		auto s = "{% if true %}{% endif %}";
 		auto context = new TplIfEl;
 		assert(p(s, context));
-		assert(context.expr(state).get!bool);
+		assert(context.expr().get!bool);
 		s = "{% if false %}abc{% else %}def{% endif %}";
 		assert(p(s, context));
-		assert(!context.expr(state).get!bool);
+		assert(!context.expr().get!bool);
 		assert(1 == context.ifEls.length);
 		assert("abc" == context.ifEls[0]());
 		assert(1 == context.elseEls.length);
@@ -753,12 +805,12 @@ class PrintStmtParser: ContextParser!(TplPrintEl)
 	{
 		scope t = new Test!PrintStmtParser;
 		auto p = new PrintStmtParser;
-		auto state = new TornadoState;
-		state.var("i", Variant(123));
+		auto tpl = new Tornado;
+		tpl.assign("i", 123);
 		auto s = "{{ i }}";
 		auto context = new TplPrintEl;
 		assert(p(s, context));
-		assert("123" == context(state));
+		assert("123" == context(tpl));
 	}
 }
 
@@ -769,30 +821,30 @@ class ForeachStmtParser: ContextParser!(TplForeachEl)
 		this (ScriptParser script)
 		{
 			auto foreachStmt
-				= doBlockBgn.trace("{%")
+				= doBlockBgn
 				>> *space
-				>> string_("foreach").trace("foreach")
+				>> "foreach"
 				>> +space
 				>> ~(id[(string s){ context.keyVar = s; }] >> *space >> ',' >> *space)
 				>> id[(string s){ context.valVar = s; }]
 				>> +space
-				>> string_("in").trace("in")
+				>> "in"
 				>> +space
 				>> id[(string s){ context.exprVar = s; }]
 				>> *space
-				>> doBlockEnd.trace("%}")
+				>> doBlockEnd
 				;
 			auto endForeachStmt
 				= doBlockBgn
 				>> *space
-				>> string_("endforeach").trace("endforeach")
+				>> "endforeach"
 				>> *space
 				>> doBlockEnd
 				;
 			parser
-				= foreachStmt.trace("foreachStmt")
+				= foreachStmt
 				>> lazy_(&script)[{ context.els = script.context.els; }]
-				>> endForeachStmt.trace("endForeachStm")
+				>> endForeachStmt
 				;
 		}
 		
@@ -806,12 +858,58 @@ class ForeachStmtParser: ContextParser!(TplForeachEl)
 	}
 }
 
+class BlockStmtParser: ContextParser!(TplBlockEl)
+{
+	public:
+		this (ScriptParser script)
+		{
+			parser
+				= doBlockBgn
+				>> *space
+				>> "block"
+				>> +space
+				>> id[(string id){ context.name = id; }]
+				>> *space
+				>> doBlockEnd
+				>> lazy_(&script)[{ context.els = script.context.els; }]
+				>> doBlockBgn
+				>> *space
+				>> "endblock"
+				>> *space
+				>> doBlockEnd
+				;
+		}
+}
+
+class ExtendsStmtParser: ContextParser!(TplExtendsEl)
+{
+	public:
+		SimpleExprParser simpleExpr;
+		
+		this ()
+		{
+			simpleExpr = new SimpleExprParser;
+			
+			parser
+				= doBlockBgn
+				>> *space
+				>> "extends"
+				>> +space
+				>> simpleExpr[{ context.tplName = simpleExpr.context; }]
+				>> *space
+				>> doBlockEnd
+				;
+		}
+}
+
 class ScriptParser: ContextParser!(ScriptContext)
 {
 	protected:
 		IfStmtParser ifStmt;
 		ForeachStmtParser foreachStmt;
 		PrintStmtParser printStmt;
+		BlockStmtParser blockStmt;
+		ExtendsStmtParser extendsStmt;
 		
 	public:
 		this ()
@@ -820,12 +918,17 @@ class ScriptParser: ContextParser!(ScriptContext)
 			ifStmt = new IfStmtParser(this);
 			foreachStmt = new ForeachStmtParser(this);
 			printStmt = new PrintStmtParser;
+			blockStmt = new BlockStmtParser(this);
+			extendsStmt = new ExtendsStmtParser;
+			
 			parser
 				= (
 				*	( comment
 					| ifStmt[{ context.appendElement(ifStmt.context); }]
 					| foreachStmt[{ context.appendElement(foreachStmt.context); }]
 					| printStmt[{ context.appendElement(printStmt.context); }]
+					| blockStmt[{ context.appendElement(blockStmt.context); context.blocks[blockStmt.context.name] = blockStmt.context; }]
+					| extendsStmt[{ context.appendElement(extendsStmt.context); }]
 					| (anychar - (commentBlockBgn | doBlockBgn | printBlockBgn))[(char ch){ context.appendContent(ch); }]
 					)
 				)[{ context.closeContentBlock; context.els.length = context.elsCnt; }]
@@ -858,12 +961,12 @@ class ScriptParser: ContextParser!(ScriptContext)
 
 void upperModifier (ref Variant v, Variant[] params)
 {
-	v = toupper(v.get!string);
+	v = toupper(v.toString);
 }
 
 void lowerModifier (ref Variant v, Variant[] params)
 {
-	v = tolower(v.get!string);
+	v = tolower(v.toString);
 }
 
 void sliceModifier (ref Variant v, Variant[] params)
@@ -890,7 +993,7 @@ void sliceModifier (ref Variant v, Variant[] params)
 	v = s[from - 1 .. to];
 }
 
-class TornadoState
+class Tornado: Templater
 {
 	protected:
 		struct VariantProxy
@@ -904,16 +1007,19 @@ class TornadoState
 		
 		VariantProxy[string] vars;
 		Modifier[string] modifiers;
-
+		ScriptParser parser;
+		ScriptContext context;
+		
 	public:
 		alias void function (ref Variant, Variant[]) Modifier;
+		bool skipMode;
 		
 		Variant var (string name)
 		{
 			auto val = name in vars;
 			return (val is null)? Variant(null) : (*val).v;
 		}
-		TornadoState var (string name, Variant value)
+		Templater var (string name, Variant value)
 		{
 			vars[name] = *new VariantProxy(value);
 			return this;
@@ -927,67 +1033,28 @@ class TornadoState
 			modifiers[name] = modifier;
 			return this;
 		}
-}
-
-class Tornado: Templater
-{
-	protected:
-		ScriptParser parser;
-		ScriptContext context;
-		TornadoState state;
-		
-		string executeScript (TplEl[] els)
-		{
-			auto res = "";
-			foreach (el; els)
-				res ~= el.execute(state);
-			return res;
-		}
-		
-	public:
-		auto modifier (string name)
-		{
-			return state.modifier(name);
-		}
-		auto modifier (string name, TornadoState.Modifier modifier)
-		{
-			state.modifier(name, modifier);
-			return this;
-		}
 		this (string[] tplsDirs = null, WsApi ws = null)
 		{
 			super(tplsDirs, ws);
-			state = new TornadoState;
 			parser = new ScriptParser;
-			state
-				.modifier("upper", &upperModifier)
-				.modifier("lower", &lowerModifier)
-				.modifier("slice", &sliceModifier);
+			modifier("upper", &upperModifier);
+			modifier("lower", &lowerModifier);
+			modifier("slice", &sliceModifier);
+		}
+		Tornado parse (string s, ScriptContext context)
+		{
+			this.context = context;
+			auto s2 = s;
+			skipMode = false;
+			if (!parser(s2, context) || s2.length)
+				throw new TplParseError(s2, s.length - s2.length);
+			return this;
 		}
 		string fetchString (string s)
 		{
 			auto context = new ScriptContext;
-			string s2 = s;
-			if (!parser(s2, context) || s2.length)
-				throw new TplParseError(s.length - s2.length);
-			return executeScript(context.els);
-		}
-		Variant var (string name)
-		{
-			return state.var(name);
-		}
-		Tornado var (string name, Variant val)
-		{
-			state.var(name, val);
-			return this;
-		}
-		auto assign (Type) (string name, Type val)
-		{
-			static if (is(Type == Variant))
-				var(name, val);
-			else
-				var(name, Variant(val));
-			return this;
+			parse(s, context);
+			return context(this);//executeScript(context.els);
 		}
 		
 	unittest
@@ -995,39 +1062,34 @@ class Tornado: Templater
 		scope t = new Test!Tornado;
 		auto tpl = new Tornado;
 		//
-		auto s = "{% if true %}yes{% else %}no{% endif %}";
-		assert("yes" == tpl.fetchString(s));
+		assert("yes" == tpl.fetchString("{% if true %}yes{% else %}no{% endif %}"));
 		//
-		s = "{% if abc %}yeah{% else %}nope{% endif %}";
 		tpl.assign("abc",true);
-		assert("yeah" == tpl.fetchString(s));
+		assert("yeah" == tpl.fetchString("{% if abc %}yeah{% else %}nope{% endif %}"));
 		tpl.assign("abc", null);
-		assert("nope" == tpl.fetchString(s));
+		assert("nope" == tpl.fetchString("{% if abc %}yeah{% else %}nope{% endif %}"));
 		//
-		s = "{% if cbd5 > def6 %}111{% else %}222{% endif %}";
 		tpl.assign("cbd5", 5);
 		tpl.assign("def6", 6);
-		assert("222" == tpl.fetchString(s));
+		assert("222" == tpl.fetchString("{% if cbd5 > def6 %}111{% else %}222{% endif %}"));
 		tpl.assign("cbd5", 50);
 		tpl.assign("def6", 20);
-		assert("111" == tpl.fetchString(s));
+		assert("111" == tpl.fetchString("{% if cbd5 > def6 %}111{% else %}222{% endif %}"));
 		//
-		s = "{% if true yes{% else %}no{% endif %}";
-		assertThrows!TplParseError({ tpl.fetchString(s); });
+		assertThrows!TplParseError({ tpl.fetchString("{% if true yes{% else %}no{% endif %}"); });
 		// With modifiers
 		tpl.assign("testStr", "testVal");
-		s = "abcdef{% if testStr|upper == \"TESTVAL\" %}gh{% else %}334{% endif %}wqw";
-		assert("abcdefghwqw" == tpl.fetchString(s));
-		s = "abcdef{% if testStr|upper|lower == \"testval\" %}gh{% else %}334{% endif %}wqw";
-		assert("abcdefghwqw" == tpl.fetchString(s));
-		s = "abcdef{% if testStr|slice:2:4 == \"est\" %}gh{% else %}334{% endif %}wqw";
-		assert("abcdefghwqw" == tpl.fetchString(s));
+		assert("abcdefghwqw" == tpl.fetchString("abcdef{% if testStr|upper == \"TESTVAL\" %}gh{% else %}334{% endif %}wqw"));
+		assert("abcdefghwqw" == tpl.fetchString("abcdef{% if testStr|upper|lower == \"testval\" %}gh{% else %}334{% endif %}wqw"));
+		assert("abcdefghwqw" == tpl.fetchString("abcdef{% if testStr|slice:2:4 == \"est\" %}gh{% else %}334{% endif %}wqw"));
 		// Foreach
 		tpl.assign("testForeach", ["a", "b", "c", "d"]);
-		s = "11{% foreach v in testForeach %}{{ v }}{% endforeach %}22";
-		assert("11abcd22" == tpl.fetchString(s));
-		s = "({% foreach i, v in testForeach %}[{% if v|upper == \"C\" %}{{ i }}:{{ v }}{% else %}{{ v }}{% endif %}]{% endforeach %})";
-		assert("([a][b][2:c][d])" == tpl.fetchString(s));
+		assert("11abcd22" == tpl.fetchString("11{% foreach v in testForeach %}{{ v }}{% endforeach %}22"));
+		assert("([a][b][2:c][d])" == tpl.fetchString("({% foreach i, v in testForeach %}[{% if v|upper == \"C\" %}{{ i }}:{{ v }}{% else %}{{ v }}{% endif %}]{% endforeach %})"));
+		// Block
+		tpl.assign("v", 1);
+		assert("abc(def)ghi" == tpl.fetchString("abc{% block test %}({% if v == 1 %}def{% endif %}){% endblock %}ghi"));
+		
 	}
 }
 

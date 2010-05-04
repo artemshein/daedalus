@@ -1,3 +1,10 @@
+/**
+ * Quality control module
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module qc;
 
 import std.stdio;

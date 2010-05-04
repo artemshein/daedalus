@@ -1,3 +1,10 @@
+/**
+ * Application HTTP web-server
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2009 - 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module http.appserver;
 
 import std.conv, std.stdarg, core.thread, std.string;

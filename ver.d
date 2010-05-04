@@ -1,10 +1,20 @@
+/**
+ * Versions
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module ver;
+
+import std.conv, std.string;
 
 abstract class Version
 {
+	abstract string toString ();
 }
 
-class StatusVersion
+class StatusVersion: Version
 {
 	public:
 		uint major, minor;
@@ -46,8 +56,8 @@ class StatusVersion
 			auto mi = arr[1];
 			if (mi.length)
 			{
-				c = mi[$ - 1];
-				if ('d' == c || 'b' == c || 'a' == c || 'r' == c)
+				auto c2 = mi[$ - 1];
+				if ('d' == c2 || 'b' == c2 || 'a' == c2 || 'r' == c2)
 				{
 					minorStatus = mi[$ - 1 .. $];
 					minor = to!uint(mi[0 .. $ - 1]);
@@ -59,5 +69,10 @@ class StatusVersion
 				// Minor & major parts only
 				return;
 			dateRevOrBuild = arr[2];
+		}
+		
+		string toString ()
+		{
+			return to!string(major) ~ majorStatus ~ "." ~ to!string(minor) ~ minorStatus ~ "." ~ to!string(dateRevOrBuild);
 		}
 }
