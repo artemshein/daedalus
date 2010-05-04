@@ -1,15 +1,15 @@
+/**
+ * HTTP web-server API
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2009 - 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module http.wsapi; 
 
-import std.string : split, indexOf, tolower, strip, format;
-import std.regex : Regex, match, regex;
-import std.conv : to;
-import std.variant : Variant;
-import std.md5 : getDigestString;
-import std.random : uniform;
-import std.algorithm : startsWith, endsWith;
-import std.uri : decode;
+private import std.string, std.regex, std.conv, std.variant, std.md5,
+	std.random, std.algorithm, std.uri, std.stdarg, std.stdio, std.file;
 import type : constCast;
-import std.stdarg, std.stdio, std.file;
 
 string castToTypeAndConcat (string type)
 {
@@ -65,7 +65,8 @@ abstract class WsApi
 		}
 		WsApi parseMultipartFormData (string boundary, string data)
 		{
-			foreach (block; split(data, boundary)[1 .. $ - 1])
+			auto res = split(data, boundary);
+			foreach (block; res[1 .. $ - 1])
 			{
 				auto eol2Pos = indexOf(block, "\r\n\r\n");
 				if (-1 == eol2Pos)
