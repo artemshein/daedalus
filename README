@@ -1,23 +1,35 @@
 Daedalus
 ========
+Version: 1d.1 (development preview).
 
 Daedalus is a D2 language (http://digitalmars.com/d/2.0/index.html)
 MVC web-framework.
 ...
 
 Daedalus features:
+------------------
 + extremely fast (significantly faster than scripting languages can be);
 + simple & clean API;
 ...
 
+Daedalus already includes:
+--------------------------
++ parser module (with Boost::Spirit parsers sintax) [beta]
++ Tornado templater (with Django-like sintax) [dev]
++ MySQL driver (with native libmysqlclient wrapper) [dev]
++ CGI support [alpha]
++ UrlConf (URL to action mappings) [alpha]
++ Standalone application server (with CGI support) [dev]
+
 Roadmap
 =======
 
-1.0 (Q2 2011)
+1.0 (~Q2 2011)
 ---
 + SQLite driver;
 + Yaml parser/generator;
 + Models & forms;
++ FastCGI, SCGI support;
 ...
 
 
@@ -27,7 +39,7 @@ Changelog
 1d.1 (may 10)
 ----
 + db.driver;
-+ MySQL driver (with libmysqlclient wrapper).
++ MySQL driver (with native libmysqlclient wrapper).
 
 1d.0
 ----

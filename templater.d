@@ -347,27 +347,27 @@ private class OpExpr: Expr
 			bool isBiggerThan (Variant l, Variant r)
 			{
 				if (l.type == typeid(uint))
-					return l.get!uint > r.get!uint;
+					return l.get!uint > ((typeid(uint) == r.type) ? r.get!uint : r.get!int);
 				else if (l.type == typeid(int))
-					return l.get!int > r.get!int;
+					return l.get!int > ((typeid(uint) == r.type) ? r.get!uint : r.get!int);
 				else
 					return l > r;
 			}
 			bool isBiggerOrEqThan (Variant l, Variant r)
 			{
 				if (l.type == typeid(uint))
-					return l.get!uint >= r.get!uint;
+					return l.get!uint >= ((typeid(uint) == r.type) ? r.get!uint : r.get!int);
 				else if (l.type == typeid(int))
-					return l.get!int >= r.get!int;
+					return l.get!int >= ((typeid(uint) == r.type) ? r.get!uint : r.get!int);
 				else
 					return l >= r;
 			}
 			bool isEq (Variant l, Variant r)
 			{
 				if (l.type == typeid(uint))
-					return l.get!uint == r.get!uint;
+					return l.get!uint == ((typeid(uint) == r.type) ? r.get!uint : r.get!int);
 				else if (l.type == typeid(int))
-					return l.get!int == r.get!int;
+					return l.get!int == ((typeid(uint) == r.type) ? r.get!uint : r.get!int);
 				else
 					return l == r;
 			}
@@ -397,7 +397,7 @@ private class OpExpr: Expr
 				case "==":
 					return Variant(isEq(l, r));
 			}
-			assert(0, "invalid operator");
+			assert(false, "invalid operator");
 		}
 }
 
@@ -523,7 +523,7 @@ private class TplForeachEl: TplEl
 			else if (val.type == typeid(Variant[string]))
 				mixin(foreachIfStmt!"Variant[string]");
 			else
-				assert(0);
+				assert(false, "not implemented");
 			return res;
 		}
 }

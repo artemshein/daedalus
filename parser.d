@@ -1506,11 +1506,9 @@ RangeParser range (uint start, uint end)
  + Parsers
  +/
 
-static EndParser end = void;
-static Parser alpha = void, alnum = void, digit = void, eol = void,
-	anychar = void, space = void, byte_ = void, ubyte_ = void,
-	short_ = void, ushort_ = void, int_ = void, uint_ = void,
-	long_ = void, ulong_ = void, float_ = void, double_ = void;
+static EndParser end;
+static Parser alpha, alnum, digit, eol, anychar, space, byte_, ubyte_,
+	short_, ushort_, int_, uint_, long_, ulong_, float_, double_;
 
 static this ()
 {
@@ -1518,19 +1516,19 @@ static this ()
 	digit = range('0', '9');
 	alnum = alpha | digit;
 	anychar = range(0, 255);
-	end = new EndParser();
+	end = new EndParser;
 	eol = char_('\n') | ('\r' >> ~char_('\n'));
 	auto e = (char_('e') | 'E') >> ~(char_('+') | '-') >> +digit;
-	byte_ = new PrimitiveParser!(byte)();
-	ubyte_ = new PrimitiveParser!(ubyte)();
-	short_ = new PrimitiveParser!(short)();
-	ushort_ = new PrimitiveParser!(ushort)();
-	int_ = new PrimitiveParser!(int)();
-	uint_ = new PrimitiveParser!(uint)();
-	long_ = new PrimitiveParser!(long)();
-	ulong_ = new PrimitiveParser!(ulong)();
-	float_ = new PrimitiveParser!(float)();
-	double_ = new PrimitiveParser!(double)();
+	byte_ = new PrimitiveParser!byte;
+	ubyte_ = new PrimitiveParser!ubyte;
+	short_ = new PrimitiveParser!short;
+	ushort_ = new PrimitiveParser!ushort;
+	int_ = new PrimitiveParser!int;
+	uint_ = new PrimitiveParser!uint;
+	long_ = new PrimitiveParser!long;
+	ulong_ = new PrimitiveParser!ulong;
+	float_ = new PrimitiveParser!float;
+	double_ = new PrimitiveParser!double;
 	space = char_(' ') | '\t' | '\v' | eol;
 }
 
