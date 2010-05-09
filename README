@@ -1,0 +1,37 @@
+Daedalus
+========
+
+Daedalus is a D2 language (http://digitalmars.com/d/2.0/index.html)
+MVC web-framework.
+...
+
+Daedalus features:
++ extremely fast (significantly faster than scripting languages can be);
++ simple & clean API;
+...
+
+Roadmap
+=======
+
+1.0 (Q2 2011)
+---
++ SQLite driver;
++ Yaml parser/generator;
++ Models & forms;
+...
+
+
+Changelog
+=========
+
+1d.1 (may 10)
+----
++ db.driver;
++ MySQL driver (with libmysqlclient wrapper).
+
+1d.0
+----
+Initial version: parser, templater, http.{appserver,cgi,wsapi} modules.
+
+=========================================
+Copyright (c) 2009-2010 Aisys (aisys.ru).
