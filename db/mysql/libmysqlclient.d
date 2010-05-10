@@ -7,6 +7,10 @@
  */
 module db.mysql.libmysqlclient;
 
+import config;
+
+pragma(lib, LIB_PATH ~ "/libmysqlclient.a");
+
 alias mysql_server_init mysql_library_init;
 alias mysql_server_end mysql_library_end;
 
@@ -70,7 +74,8 @@ enum mysql_status
 struct st_mysql_methods;
 struct charset_info_st;
 
-struct st_net {
+struct st_net
+{
   Vio *vio;
   ubyte* buff, buff_end, write_pos, read_pos;
   my_socket fd;					/* For Perl DBI/dbd */
