@@ -2,9 +2,9 @@ module fixes;
 
 import std.variant;
 
-// Bug in std.variant
+// Bug in dmd or std.variant
 
-struct VariantProxy
+class VariantProxy
 {
 	Variant v;
 	this (Variant v)
