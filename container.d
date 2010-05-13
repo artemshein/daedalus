@@ -1,5 +1,7 @@
 module container;
 
+import fields;
+
 abstract class Container
 {
 	protected:
