@@ -1,6 +1,6 @@
 Daedalus
 ========
-Version: 1d.1 (development preview).
+Version: 1d.2 (development preview).
 
 Daedalus is a D2 language (http://digitalmars.com/d/2.0/index.html)
 MVC web-framework.
@@ -20,6 +20,7 @@ Daedalus already includes:
 + CGI support [alpha]
 + UrlConf (URL to action mappings) [alpha]
 + Standalone application server (with CGI support) [dev]
++ YAML parser & generator [dev]
 
 Roadmap
 =======
@@ -27,7 +28,6 @@ Roadmap
 1.0 (~Q2 2011)
 ---
 + SQLite driver;
-+ Yaml parser/generator;
 + Models & forms;
 + FastCGI, SCGI support;
 ...
@@ -35,6 +35,12 @@ Roadmap
 
 Changelog
 =========
+
+1d.2 (may 10)
+----
++ validators;
++ fields;
++ YAML parser/generator;
 
 1d.1 (may 10)
 ----
