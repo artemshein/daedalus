@@ -1,6 +1,6 @@
 module validators;
 
-import std.conv;
+import std.conv, std.regex;
 import qc;
 
 abstract class Validator
@@ -20,6 +20,8 @@ abstract class Validator
 class FilledValidator: Validator
 {
 	public:
+		static string key = "filled";
+		
 		bool valid (string s)
 		{
 			return s !is null && s.length;
@@ -51,7 +53,10 @@ class FilledValidator: Validator
 class LengthValidator: Validator
 {
 	public:
+		static string key = "length";
+		
 		uint min = uint.min, max = uint.max;
+		
 		this (uint min, uint max)
 		{
 			this.min = min;
@@ -98,6 +103,8 @@ class LengthValidator: Validator
 class IntValidator: Validator
 {
 	public:
+		static string key = "int";
+		
 		bool valid (string s)
 		{
 			try
@@ -131,5 +138,45 @@ class IntValidator: Validator
 		assert(!v.valid("abcd"));
 		assert(v.valid("12345"));
 		assert(v.valid("-245"));
+	}
+}
+
+class RegexpValidator: Validator
+{		
+	public:
+		static string key = "regexp";
+		
+		string regexp;
+		
+		this (string s)
+		{
+			regexp = s;
+		}
+		bool valid (string s)
+		{
+			return !match(s, regex(regexp)).empty;
+		}
+		bool valid (int v)
+		{
+			return valid(to!string(v));
+		}
+		bool valid (uint v)
+		{
+			return valid(to!string(v));
+		}
+		bool valid (bool b)
+		{
+			assert(false, "not implemented");
+		}
+	
+	unittest
+	{
+		scope t = new Test!RegexpValidator;
+		auto v = new RegexpValidator("^abc");
+		assert(!v.valid(""));
+		assert(!v.valid(null));
+		assert(!v.valid("ab"));
+		assert(v.valid("abc"));
+		assert(v.valid("abcdef"));
 	}
 }
