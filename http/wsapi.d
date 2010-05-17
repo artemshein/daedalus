@@ -25,33 +25,31 @@ abstract class WsApi
 		static string[uint] responseCodesStrings;
 		static string[string] mimeTypes;
 		string dataToSend;
-		@property
+		
+		WsApi getData (string[string] getData)
 		{
-			auto getData (string[string] getData)
-			{
-				_getData = getData;
-				return this;
-			}
-			auto postData (Variant[string] postData)
-			{
-				_postData = postData;
-				return this;
-			}
-			auto requestHeaders (string[string] requestHeaders)
-			{
-				_requestHeaders = requestHeaders;
-				return this;
-			}
-			auto responseHeaders (string[string] responseHeaders)
-			{
-				_responseHeaders = responseHeaders;
-				return this;
-			}
-			auto cookies (string[string] cookies)
-			{
-				_cookies = cookies;
-				return this;
-			}
+			_getData = getData;
+			return this;
+		}
+		WsApi postData (Variant[string] postData)
+		{
+			_postData = postData;
+			return this;
+		}
+		WsApi requestHeaders (string[string] requestHeaders)
+		{
+			_requestHeaders = requestHeaders;
+			return this;
+		}
+		WsApi responseHeaders (string[string] responseHeaders)
+		{
+			_responseHeaders = responseHeaders;
+			return this;
+		}
+		auto cookies (string[string] cookies)
+		{
+			_cookies = cookies;
+			return this;
 		}
 		auto get (string key, string value)
 		{
@@ -207,14 +205,12 @@ abstract class WsApi
 	public:
 		ushort responseCode;
 		bool headersSent;
-		@property
-		{
-			auto requestHeaders () { return mixin(constCast(_requestHeaders.stringof)); }
-			auto getData () { return mixin(constCast(_getData.stringof)); }
-			auto postData () { return mixin(constCast(_postData.stringof)); }
-			auto responseHeaders () { return mixin(constCast(_responseHeaders.stringof)); }
-			auto cookies () { return mixin(constCast(_cookies.stringof)); }
-		}
+		
+		string[string] requestHeaders () { return mixin(constCast(_requestHeaders.stringof)); }
+		auto getData () { return mixin(constCast(_getData.stringof)); }
+		auto postData () { return mixin(constCast(_postData.stringof)); }
+		string[string] responseHeaders () { return mixin(constCast(_responseHeaders.stringof)); }
+		auto cookies () { return mixin(constCast(_cookies.stringof)); }
 		Variant* post (string key) { return key in postData; }
 		string* get (string key) { return key in getData; }
 		WsApi requestHeader (string key, string val)
@@ -229,8 +225,8 @@ abstract class WsApi
 			_cookies[key] = value;
 			return this;
 		}
-		auto responseHeader (string key) { return key in responseHeaders; }
-		auto responseHeader (string key, string value)
+		string* responseHeader (string key) { return key in responseHeaders; }
+		WsApi responseHeader (string key, string value)
 		{
 			_responseHeaders[key] = value;
 			return this;

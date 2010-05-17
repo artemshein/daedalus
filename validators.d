@@ -1,7 +1,7 @@
 module validators;
 
-import std.conv, std.regex;
-import qc;
+import std.conv;//, std.regex;
+import qc, fields;
 
 abstract class Validator
 {
@@ -11,10 +11,11 @@ abstract class Validator
 		string errorMsg;
 		
 		abstract:
-			bool valid (string);
-			bool valid (int);
-			bool valid (uint);
-			bool valid (bool);
+			bool valid (in string);
+			bool valid (in int);
+			bool valid (in uint);
+			bool valid (in bool);
+			string js ();
 }
 
 class FilledValidator: Validator
@@ -22,21 +23,25 @@ class FilledValidator: Validator
 	public:
 		static string key = "filled";
 		
-		bool valid (string s)
+		bool valid (in string s)
 		{
 			return s !is null && s.length;
 		}
-		bool valid (int v)
+		bool valid (in int v)
 		{
 			return true;
 		}
-		bool valid (uint v)
+		bool valid (in uint v)
 		{
 			return true;
 		}
-		bool valid (bool b)
+		bool valid (in bool b)
 		{
 			return true;
+		}
+		string js ()
+		{
+			return "validFilled()";
 		}
 		
 	unittest
@@ -57,30 +62,35 @@ class LengthValidator: Validator
 		
 		uint min = uint.min, max = uint.max;
 		
-		this (uint min, uint max)
+		this (in uint min, in uint max)
 		{
 			this.min = min;
 			this.max = max;
 		}
-		this (uint max)
+		this (in uint max)
 		{
 			this.max = max;
 		}
-		bool valid (string s)
+		bool valid (in string s)
 		{
 			return s.length >= min && s.length <= max;
 		}
-		bool valid (int v)
+		bool valid (in int v)
 		{
 			return valid(to!string(v));
 		}
-		bool valid (uint v)
+		bool valid (in uint v)
 		{
 			return valid(to!string(v));
 		}
-		bool valid (bool v)
+		bool valid (in bool v)
 		{
 			assert(false, "not implemented");
+		}
+		string js ()
+		{
+			return "validLength(" ~ to!string(min) ~ ", "
+				~ (max? to!string(max) : "null") ~ ")";
 		}
 	
 	unittest
@@ -105,7 +115,7 @@ class IntValidator: Validator
 	public:
 		static string key = "int";
 		
-		bool valid (string s)
+		bool valid (in string s)
 		{
 			try
 			{
@@ -117,17 +127,21 @@ class IntValidator: Validator
 			}
 			return true;
 		}
-		bool valid (int v)
+		bool valid (in int v)
 		{
 			return true;
 		}
-		bool valid (uint v)
+		bool valid (in uint v)
 		{
 			return true;
 		}
-		bool valid (bool b)
+		bool valid (in bool b)
 		{
 			return false;
+		}
+		string js ()
+		{
+			return "validInt()";
 		}
 		
 	unittest
@@ -140,7 +154,7 @@ class IntValidator: Validator
 		assert(v.valid("-245"));
 	}
 }
-
+/+
 class RegexpValidator: Validator
 {		
 	public:
@@ -148,35 +162,35 @@ class RegexpValidator: Validator
 		
 		string regexp;
 		
-		this (string s)
+		this (in string s)
 		{
 			regexp = s;
 		}
-		bool valid (string s)
+		bool valid (in string s)
 		{
 			return !match(s, regex(regexp)).empty;
 		}
-		bool valid (int v)
+		bool valid (in int v)
 		{
 			return valid(to!string(v));
 		}
-		bool valid (uint v)
+		bool valid (in uint v)
 		{
 			return valid(to!string(v));
 		}
-		bool valid (bool b)
+		bool valid (in bool b)
 		{
 			assert(false, "not implemented");
 		}
 	
 	unittest
 	{
-		scope t = new Test!RegexpValidator;
+		/+scope t = new Test!RegexpValidator;
 		auto v = new RegexpValidator("^abc");
 		assert(!v.valid(""));
 		assert(!v.valid(null));
 		assert(!v.valid("ab"));
 		assert(v.valid("abc"));
-		assert(v.valid("abcdef"));
+		assert(v.valid("abcdef"));+/
 	}
-}
+}+/

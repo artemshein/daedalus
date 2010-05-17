@@ -6,7 +6,7 @@ import qc;
 static string[string] htmlEscapeSequences;
 static this ()
 {
-	 htmlEscapeSequences = ["<": "&lt;", ">": "&rt;"];
+	htmlEscapeSequences = ["<": "&lt;", ">": "&rt;"];
 }
 
 string htmlEscape (string s)

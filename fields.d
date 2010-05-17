@@ -7,13 +7,14 @@ abstract class Field
 {
 	protected:
 		uint maxLen_;
+
 	public:
 		Container container;
 		string id, label, name, hint, onClick, onChange;
 		bool required, unique, pk, index;
 		Validator[string] validators;
 		string[] errors, classes;
-		Widget widget, ajaxWidget;
+		FieldWidget widget, ajaxWidget;
 		
 		this ()
 		{}
@@ -30,6 +31,14 @@ abstract class Field
 		uint maxLen ()
 		{
 			return maxLen_;
+		}
+		string asHtml ()
+		{
+			return widget(this);
+		}
+		string js ()
+		{
+			return widget.js(this);
 		}
 		
 		abstract:
@@ -121,7 +130,7 @@ class TextField: Field
 			else
 				(cast(LengthValidator)*v).max = len;
 			return len;
-		}
+		}/+
 		string regexp ()
 		{
 			auto v = RegexpValidator.key in validators;
@@ -138,7 +147,7 @@ class TextField: Field
 			else
 				return (cast(RegexpValidator)*v).regexp = s;
 			return s;
-		}
+		}+/
 		
 	unittest
 	{
@@ -163,7 +172,7 @@ class LoginField: TextField
 			maxLen = 32;
 			required = true;
 			unique = true;
-			regexp = "^[a-zA-Z0-9_%.%-]+$";
+			//regexp = "^[a-zA-Z0-9_%.%-]+$";
 		}
 }
 
@@ -301,7 +310,7 @@ class SubmitField: ButtonField
 {
 	protected:
 	public:
-		this (string defaultVal)
+		this (in string defaultVal)
 		{
 			this.defaultVal = defaultVal;
 		}

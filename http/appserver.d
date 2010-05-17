@@ -16,6 +16,7 @@ class Connection: WsApi
 {
 	private:
 		Socket socket;
+		
 	public:
 		this (Socket s, string tmpDir)
 		{
@@ -130,10 +131,13 @@ class ConnectionFiber: Fiber
 			{
 				conn();
 				debug writeln("Executing action");
-				if (fAction !is null)
-					fAction(conn);
-				else
-					dAction(conn);
+				synchronized
+				{
+					if (fAction !is null)
+						fAction(conn);
+					else
+						dAction(conn);
+				}
 				debug writeln("Closing connection");
 				conn.close;
 			}

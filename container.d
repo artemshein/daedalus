@@ -9,9 +9,13 @@ abstract class Container
 		string[] errors, msgs;
 		Field[string] fieldsByName;
 		
-		Container addField (string name, Field f)
+		Container addField (in string name, Field f)
 		{
 			fieldsByName[name] = f;
 			return this;
+		}
+		Field[string] fields ()
+		{
+			return fieldsByName;
 		}
 }
