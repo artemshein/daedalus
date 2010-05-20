@@ -18,12 +18,12 @@ class Connection: WsApi
 		Socket socket;
 		
 	public:
-		this (Socket s, string tmpDir)
+		this (Socket s, string tmpDir) @safe
 		{
 			super(tmpDir);
 			socket = s;
 		}
-		this (string tmpDir)
+		this (string tmpDir) @safe
 		{
 			super(tmpDir);
 		}
@@ -34,7 +34,7 @@ class Connection: WsApi
 			socket.shutdown(SocketShutdown.BOTH);
 			socket.close;
 		}
-		auto opCall ()
+		bool opCall () @safe
 		{
 			string data;
 			data.length = 4096;
@@ -86,7 +86,7 @@ class Connection: WsApi
 			.writeln("Dispatching client request");
 			return false; //!!! for now
 		}
-		WsApi sendHeaders ()
+		WsApi sendHeaders () @safe
 		{
 			if (headersSent)
 				return this;
@@ -103,7 +103,7 @@ class Connection: WsApi
 			dataToSend = headers ~ dataToSend;
 			return this;
 		}
-		WsApi flush ()
+		WsApi flush () @safe
 		{
 			WsApi.flush;
 			if (dataToSend.length)
@@ -122,7 +122,7 @@ class ConnectionFiber: Fiber
 		void function (WsApi) fAction;
 		void delegate (WsApi) dAction;
 		
-		void run ()
+		void run () @safe
 		{
 			scope(exit) delete conn;
 			try
@@ -146,7 +146,7 @@ class ConnectionFiber: Fiber
 		}
 		
 	public:
-		this (Connection conn, void function (WsApi) app)
+		this (Connection conn, void function (WsApi) app) @safe
 		in
 		{
 			assert(app !is null);
@@ -157,7 +157,7 @@ class ConnectionFiber: Fiber
 			fAction = app;
 			super(&run);
 		}
-		this (Connection conn, void delegate (WsApi) app)
+		this (Connection conn, void delegate (WsApi) app) @safe
 		in
 		{
 			assert(app !is null);
@@ -173,12 +173,15 @@ class ConnectionFiber: Fiber
 class AppServer
 {
 	private:
+		alias void function (WsApi) FuncHandler;
+		alias void delegate (WsApi) DlgHandler;
+		
 		TcpSocket socket;
 		InternetAddress addr;
-		void function (WsApi) fAction;
-		void delegate (WsApi) dAction;
+		FuncHandler fAction;
+		DlgHandler dAction;
 		
-		this (InternetAddress addr, string tmpDir)
+		this (InternetAddress addr, string tmpDir) @safe
 		{
 			debug writeln("Starting AppServer");
 			this.addr = addr;
@@ -211,31 +214,31 @@ class AppServer
 		}
 
 	public:
-		this (InternetAddress addr, string tmpDir, void function (WsApi) app)
+		this (InternetAddress addr, string tmpDir, FuncHandler app) @safe
 		{
 			assert(app !is null);
 			fAction = app;
 			this(addr, tmpDir);
 		}
-		this (InternetAddress addr, string tmpDir, void delegate (WsApi) app)
+		this (InternetAddress addr, string tmpDir, DlgHandler app) @safe
 		{
 			assert(app !is null);
 			dAction = app;
 			this(addr, tmpDir);
 		}
-		this (string addr, ushort port, string tmpDir, void function (WsApi) app)
+		this (string addr, ushort port, string tmpDir, FuncHandler app) @safe
 		{
 			this(new InternetAddress(addr, port), tmpDir, app);
 		}
-		this (string addr, ushort port, string tmpDir, void delegate (WsApi) app)
+		this (string addr, ushort port, string tmpDir, DlgHandler app) @safe
 		{
 			this(new InternetAddress(addr, port), tmpDir, app);
 		}
-		this (ushort port, string tmpDir, void function (WsApi) app)
+		this (ushort port, string tmpDir, FuncHandler app) @safe
 		{
 			this(new InternetAddress(port), tmpDir, app);
 		}
-		this (ushort port, string tmpDir, void delegate (WsApi) app)
+		this (ushort port, string tmpDir, DlgHandler app) @safe
 		{
 			this(new InternetAddress(port), tmpDir, app);
 		}

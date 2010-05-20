@@ -1,6 +1,6 @@
 module type;
 
-string constCast (string var)
+string constCast (string var) @safe pure
 {
 	return "cast(const(typeof(" ~ var ~ ")))(" ~ var ~ ")";
 }

@@ -9,9 +9,9 @@ module http.wsapi;
 
 private import std.string, std.regex, std.conv, std.variant, std.md5,
 	std.random, std.algorithm, std.uri, std.stdarg, std.stdio, std.file;
-import type : constCast;
+import type, fixes;
 
-string castToTypeAndConcat (string type)
+string castToTypeAndConcat (string type) @safe pure
 {
 	return " if (typeid(" ~ type ~ ") == arg) dataToSend ~= to!(string)(va_arg!(" ~ type ~ ")(_argptr)); ";
 }
@@ -19,49 +19,50 @@ string castToTypeAndConcat (string type)
 abstract class WsApi
 {
 	protected:
-		string[string] _getData, _requestHeaders, _responseHeaders, _cookies;
-		Variant[string] _postData;
-		string tmpDir;
 		static string[uint] responseCodesStrings;
 		static string[string] mimeTypes;
+		
+		string[string] _getData, _requestHeaders, _responseHeaders, _cookies;
+		VariantProxy[string] _postData;
+		string tmpDir;
 		string dataToSend;
 		
-		WsApi getData (string[string] getData)
+		typeof(this) getData (string[string] getData) @safe @property
 		{
 			_getData = getData;
 			return this;
 		}
-		WsApi postData (Variant[string] postData)
+		typeof(this) postData (VariantProxy[string] postData) @safe @property
 		{
 			_postData = postData;
 			return this;
 		}
-		WsApi requestHeaders (string[string] requestHeaders)
+		typeof(this) requestHeaders (string[string] requestHeaders) @safe @property
 		{
 			_requestHeaders = requestHeaders;
 			return this;
 		}
-		WsApi responseHeaders (string[string] responseHeaders)
+		typeof(this) responseHeaders (string[string] responseHeaders) @safe @property
 		{
 			_responseHeaders = responseHeaders;
 			return this;
 		}
-		auto cookies (string[string] cookies)
+		typeof(this) cookies (string[string] cookies) @safe @property
 		{
 			_cookies = cookies;
 			return this;
 		}
-		auto get (string key, string value)
+		typeof(this) get (string key, string value) @safe
 		{
 			_getData[key] = value;
 			return this;
 		}
-		auto post (string key, Variant value)
+		typeof(this) post (string key, Variant value) @trusted
 		{
-			_postData[key] = value;
+			_postData[key].v = value;
 			return this;
 		}
-		WsApi parseMultipartFormData (string boundary, string data)
+		typeof(this) parseMultipartFormData (string boundary, string data) @trusted
 		{
 			auto res = split(data, boundary);
 			foreach (block; res[1 .. $ - 1])
@@ -103,23 +104,23 @@ abstract class WsApi
 					{
 						string[string] info;
 						info["filename"] = key;
-						_postData[key] = info;
+						_postData[key].v = info;
 						if (tmpDir !is null)
 						{
 							auto fileName = tmpDir ~ getDigestString([uniform(0, 2_000_000_000)][]);
-							_postData[key]["tmpFilePath"] = fileName;
+							(*_postData[key].v.peek!(string[string]))["tmpFilePath"] = fileName;
 							write(fileName, block);
 						}
 						else
-							_postData[key]["data"] = data;
+							(*_postData[key].v.peek!(string[string]))["data"] = data;
 					}
 					else
-						_postData[key] = block;
+						_postData[key].v = block;
 				}
 			}
 			return this;
 		}
-		WsApi parseRequestHeaders (string[] headers)
+		typeof(this) parseRequestHeaders (string[] headers) @trusted
 		{
 			foreach (header; headers)
 			{
@@ -129,7 +130,7 @@ abstract class WsApi
 			}
 			return this;
 		}
-		WsApi parseGetParams (string params)
+		typeof(this) parseGetParams (string params) @trusted
 		{
 			foreach (param; params.split("&"))
 			{
@@ -139,49 +140,50 @@ abstract class WsApi
 			}
 			return this;
 		}
-		auto appendPostValue (string key, string value)
+		bool appendPostValue (string key, string value) @trusted
 		{
 			auto leftBrPos = key.indexOf("["), rightBrPos = key.indexOf("]");
 			if (-1 != leftBrPos && -1 != rightBrPos && rightBrPos > leftBrPos)
 			{	// string[string]
-				auto el = post(key[0 .. leftBrPos]);
+				auto el = cast(Variant*) post(key[0 .. leftBrPos]);
 				if (el is null)
 				{
 					string[string] v;
 					v[key[leftBrPos + 1 .. rightBrPos]] = decode(value);
 					post(key[0 .. leftBrPos], Variant(v));
 				}
-				else if (typeid(string[string]) == el.type)
+				else if (typeid(string[string]) == typeid(el))
+				{
 					(*el.peek!(string[string]))[key[leftBrPos + 1 .. rightBrPos]] = decode(value);
+				}
 				else
 					return false;
 			}
 			else
 			{	// string or string[]
-				auto el = post(key);
+				auto el = cast(Variant*) post(key);
 				if (el is null)
-					// string
 					post(key, Variant(decode(value)));
 				else if (typeid(string) == el.type)
 				{
 					string[] v;
 					v.length = 2;
-					v[0] = *el.peek!(string);
+					v[0] = el.get!(string);
 					v[1] = decode(value);
 					post(key, Variant(v));
 				}
 				else if (typeid(string[]) == el.type)
 				{
-					auto s = *el.peek!(string[]);
+					auto s = el.peek!(string[]);
 					s.length += 1;
-					s[$-1] = decode(value);
+					(*s)[$-1] = decode(value);
 				}
 				else
 					return false;
 			}
 			return true;
 		}
-		WsApi parsePostData (string data)
+		WsApi parsePostData (string data) @trusted
 		{
 			auto contentType = *requestHeader("Content-Type");
 			if (contentType.startsWith("application/x-www-form-urlencoded"))
@@ -202,36 +204,67 @@ abstract class WsApi
 				throw new Exception("not implemented for content-type: " ~ contentType);
 			return this;
 		}
+		
 	public:
 		ushort responseCode;
 		bool headersSent;
 		
-		string[string] requestHeaders () { return mixin(constCast(_requestHeaders.stringof)); }
-		auto getData () { return mixin(constCast(_getData.stringof)); }
-		auto postData () { return mixin(constCast(_postData.stringof)); }
-		string[string] responseHeaders () { return mixin(constCast(_responseHeaders.stringof)); }
-		auto cookies () { return mixin(constCast(_cookies.stringof)); }
-		Variant* post (string key) { return key in postData; }
-		string* get (string key) { return key in getData; }
-		WsApi requestHeader (string key, string val)
+		const(string[string]) requestHeaders () @safe @property pure const
+		{
+			return _requestHeaders;
+		}
+		const(string[string]) getData () @safe @property pure const
+		{
+			return _getData;
+		}
+		const(VariantProxy[string]) postData () @safe @property pure const
+		{
+			return _postData;
+		}
+		const(string[string]) responseHeaders () @safe @property pure const
+		{
+			return _responseHeaders;
+		}
+		const(string[string]) cookies () @safe @property pure const
+		{
+			return _cookies;
+		}
+		const(VariantProxy*) post (string key) @safe pure const
+		{
+			return key in postData;
+		}
+		const(string*) get (string key) @safe pure const
+		{
+			return key in getData;
+		}
+		typeof(this) requestHeader (string key, string val) @safe
 		{
 			_requestHeaders[key] = val;
 			return this;
 		}
-		string* requestHeader (string key) { return key in requestHeaders; }
-		auto cookie (string key) { return key in cookies; }
-		auto cookie (string key, string value)
+		const(string*) requestHeader (string key) @safe pure const
+		{
+			return key in requestHeaders;
+		}
+		const(string*) cookie (string key) @safe pure const
+		{
+			return key in cookies;
+		}
+		typeof(this) cookie (string key, string value) @safe
 		{
 			_cookies[key] = value;
 			return this;
 		}
-		string* responseHeader (string key) { return key in responseHeaders; }
-		WsApi responseHeader (string key, string value)
+		const(string*) responseHeader (string key) @safe pure const
+		{
+			return key in responseHeaders;
+		}
+		typeof(this) responseHeader (string key, string value) @safe
 		{
 			_responseHeaders[key] = value;
 			return this;
 		}
-		this (string tmpDir)
+		this (string tmpDir) @safe
 		{
 			this.tmpDir = tmpDir;
 		}
@@ -264,18 +297,18 @@ abstract class WsApi
 				".jpeg": "image/jpeg", ".css": "text/css", ".js": "text/javascript"
 			];
 		}
-		WsApi sendHeaders ()
+		typeof(this) sendHeaders () @safe
 		{
 			headersSent = true;
 			return this;
 		}
-		WsApi flush ()
+		typeof(this) flush () @safe
 		{
 			if (!headersSent)
 				sendHeaders;
 			return this;
 		}
-		WsApi write (...)
+		typeof(this) write (...) @trusted
 		{
 			foreach (arg; _arguments)
 				mixin(castToTypeAndConcat("string")
@@ -293,7 +326,7 @@ abstract class WsApi
 				~ "else throw new Exception(\"not implemented for write\");");
 			return this;
 		}
-		WsApi writef (...)
+		WsApi writef (...) @trusted
 		{
 			switch (_arguments.length)
 			{
@@ -320,7 +353,7 @@ abstract class WsApi
 			}
 			return this;
 		}
-		WsApi writeln (...)
+		typeof(this) writeln (...)
 		{
 			foreach (arg; _arguments)
 				mixin(castToTypeAndConcat("string")
@@ -338,7 +371,7 @@ abstract class WsApi
 			dataToSend ~= "\r\n";
 			return this;
 		}
-		WsApi writefln (...)
+		typeof(this) writefln (...) @trusted
 		{
 			switch (_arguments.length)
 			{
@@ -371,47 +404,86 @@ class HttpRequest
 {
 	public:
 		WsApi ws;
-		this (WsApi ws)
+		
+		this (WsApi ws) @safe
 		{
 			this.ws = ws;
 		}
 		// Headers
-		auto headers () { return ws.requestHeaders; }
-		auto header (string header) { return ws.requestHeader(header); }
-		@property auto method () { return header("REQUEST_METHOD"); }
+		const(string[string]) headers () @safe @property const
+		{
+			return ws.requestHeaders;
+		}
+		const(string*) header (string header) @safe pure const
+		{
+			return ws.requestHeader(header);
+		}
+		const(string*) method () @safe @property pure const
+		{
+			return header("REQUEST_METHOD");
+		}
 		// GET
-		auto getData () { return ws.getData; }
-		auto get (string key) { return ws.get(key); }
+		const(string[string]) getData () @safe @property const
+		{
+			return ws.getData;
+		}
+		const(string*) get (string key) @safe @property pure const
+		{
+			return ws.get(key);
+		}
 		// POST
-		auto postData () { return ws.postData; }
-		auto post (string key) { return ws.post(key); }
+		const(VariantProxy[string]) postData () @safe @property const
+		{
+			return ws.postData;
+		}
+		const(VariantProxy*) post (string key) @safe @property pure const
+		{
+			return ws.post(key);
+		}
 		// Cookies
-		auto cookies () { return ws.cookies; }
-		auto cookie (string key) { return ws.cookie(key); }
+		const(string[string]) cookies () @safe @property pure const
+		{
+			return ws.cookies;
+		}
+		const(string*) cookie (string key) @safe pure const
+		{
+			return ws.cookie(key);
+		}
 }
 
 class HttpResponse
 {
 	public:
 		WsApi ws;
-		auto header (string key) { return ws.responseHeader(key); }
-		auto header (string key, string value)
+		
+		const(string*) header (string key) @safe pure const
+		{
+			return ws.responseHeader(key);
+		}
+		typeof(this) header (string key, string value) @safe
 		{
 			ws.responseHeader(key, value);
 			return this;
 		}
-		@property
+		typeof(WsApi.responseCode) code () @safe @property const
 		{
-			auto code () { return ws.responseCode; }
-			auto code (ushort code)
-			{
-				ws.responseCode = code;
-				return this;
-			}
-			auto contentType () { return header("Content-Type"); }
-			auto contentType (string type) { return header("Content-Type", type); }
+			return ws.responseCode;
 		}
-		auto sendHeaders ()
+		typeof(this) code (ushort code) @safe @property
+		{
+			ws.responseCode = code;
+			return this;
+		}
+		const(string*) contentType () @safe @property const
+		{
+			return header("Content-Type");
+		}
+		typeof(this) contentType (in string type) @safe @property
+		{
+			header("Content-Type", type);
+			return this;
+		}
+		typeof(this) sendHeaders () @safe
 		{
 			ws.sendHeaders;
 			return this;
@@ -423,7 +495,8 @@ class Route
 	public:
 		Regex!(char) regex;
 		Variant handler;
-		this (Regex!(char) regex, Variant handler)
+		
+		this (Regex!(char) regex, Variant handler) @trusted
 		{
 			this.regex = regex;
 			this.handler = handler;
@@ -432,32 +505,29 @@ class Route
 
 Route route (R, H) (R re, H handler)
 {
-	static if (typeid(R) == typeid(string))
+	static if (is(R : string))
 		return new Route(regex(re), Variant(handler));
 	else
 		return new Route(re, Variant(handler));
 }
 
-/// Needed due to bug in D2 or Phobos
-struct VariantProxy
-{
-	Variant v;
-}
-
 class UrlConf
 {
-	private:
 	public:
+		alias void function (UrlConf, VariantProxy[string]) FuncHandler;
+		alias void delegate (UrlConf, VariantProxy[string]) DlgHandler;
+		
 		HttpRequest request;
 		string urlPrefix, uri, tailUri, baseUri;
 		string[] captures;
 		VariantProxy[string] environment;
 		Route[] routes;
-		this (HttpRequest request, string urlPrefix)
+		
+		this (HttpRequest request, string urlPrefix) @trusted
 		{
 			this.request = request;
 			this.urlPrefix = urlPrefix;
-			environment["urlConf"] = VariantProxy(Variant(this));
+			environment["urlConf"] = new VariantProxy(Variant(this));
 			auto reqUri = request.header("Request-Uri");
 			if (reqUri !is null)
 			{
@@ -476,21 +546,21 @@ class UrlConf
 			else
 				tailUri = uri;
 		}
-		this (HttpRequest request)
+		this (HttpRequest request) @safe
 		{
 			this(request, "");
 		}
-		this (WsApi wsApi)
+		this (WsApi wsApi) @safe
 		{
 			this(new HttpRequest(wsApi));
 		}
-		UrlConf bind (Route route)
+		UrlConf bind (Route route) @safe
 		{
 			routes.length += 1;
 			routes[$ - 1] = route;
 			return this;
 		}
-		bool dispatch (Route[] routes)
+		bool dispatch (Route[] routes) @trusted
 		{
 			foreach (route; routes)
 			{
@@ -503,7 +573,7 @@ class UrlConf
 						captures.length += 1;
 						captures[$-1] = capture;
 					}
-					environment["captures"] = VariantProxy(Variant(captures));
+					environment["captures"] = new VariantProxy(Variant(captures));
 					baseUri ~= uri[0..match.pre.length];
 					tailUri = tailUri[match.pre.length..$];
 					if (activate(route.handler))
@@ -512,35 +582,34 @@ class UrlConf
 			}
 			return false;
 		}
-		bool dispatch ()
+		bool dispatch () @safe
 		{
 			return dispatch(routes);
 		}
-		bool dispatch (Route[] routes ...)
+		bool dispatch (Route[] routes ...) @safe
 		{
 			return dispatch(routes);
 		}
-		bool activate (Variant handler)
+		bool activate (Variant handler) @trusted
 		{
 			.writefln("environment is 0x%x", &environment);
-			auto type = handler.type;
-			if (typeid(void function (UrlConf, VariantProxy[string])) == type)
-				(*handler.peek!(void function (UrlConf, VariantProxy[string])))(this, environment);
-			else if (typeid(void delegate (UrlConf, VariantProxy[string])) == type)
-				(*handler.peek!(void delegate (UrlConf, VariantProxy[string])))(this, environment);
+			if (typeid(FuncHandler) == typeid(handler))
+				handler.get!(FuncHandler)(this, environment);
+			else if (typeid(DlgHandler) == typeid(handler))
+				handler.get!(DlgHandler)(this, environment);
 			else
 				throw new Exception("not implemented for activate");
 			return true;
 		}
 }
 
-void delegate (UrlConf, VariantProxy[string]) serveStatic (string path)
+UrlConf.DlgHandler serveStatic (in string path)
 {
 	return (UrlConf urlConf, VariantProxy[string] env)
 	{
 		auto request = urlConf.request;
 		auto ws = request.ws;
-		string[] captures = *env["captures"].v.peek!(string[]);
+		auto captures = env["captures"].v.get!(string[]);
 		debug .writefln("Serving static in %s", path);
 		debug .writeln(captures);
 		auto fileName = path ~ captures[1];
