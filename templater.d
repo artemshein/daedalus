@@ -660,7 +660,6 @@ class VarParser: ContextParser!(VarExpr)
 		
 	unittest
 	{
-		scope t = new Test!VarParser;
 		auto tpl = new Tornado;
 		auto p = new VarParser;
 		auto context = new VarExpr;
@@ -715,7 +714,6 @@ class ExprParser: ContextParser!(RefExpr)
 		
 	unittest
 	{
-		scope t = new Test!ExprParser;
 		auto p = new ExprParser;
 		auto s = "true";
 		auto context = new RefExpr;
@@ -766,7 +764,6 @@ class IfStmtParser: ContextParser!(TplIfEl)
 
 	unittest
 	{
-		scope t = new Test!IfStmtParser;
 		auto tpl = new Tornado;
 		auto p = new IfStmtParser(tpl.parser);
 		auto s = "{% if true %}{% endif %}";
@@ -803,7 +800,6 @@ class PrintStmtParser: ContextParser!(TplPrintEl)
 		
 	unittest
 	{
-		scope t = new Test!PrintStmtParser;
 		auto p = new PrintStmtParser;
 		auto tpl = new Tornado;
 		tpl.assign("i", 123);
@@ -850,7 +846,6 @@ class ForeachStmtParser: ContextParser!(TplForeachEl)
 		
 	unittest
 	{
-		scope t = new Test!ForeachStmtParser;
 		auto tpl = new Tornado;
 		tpl.assign("test", ["a", "b", "c", "d"]);
 		auto s = "--{% foreach i, v in test %}{{ i }}:{{ v }}|{% endforeach %}++";
@@ -937,7 +932,6 @@ class ScriptParser: ContextParser!(ScriptContext)
 		
 	unittest
 	{
-		scope t = new Test!ScriptParser;
 		auto tpl = new Tornado;
 		//
 		auto s = "{% if true %}yes{% else %}no{% endif %}";
@@ -1059,7 +1053,6 @@ class Tornado: Templater
 		
 	unittest
 	{
-		scope t = new Test!Tornado;
 		auto tpl = new Tornado;
 		//
 		assert("yes" == tpl.fetchString("{% if true %}yes{% else %}no{% endif %}"));

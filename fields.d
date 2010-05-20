@@ -1,7 +1,7 @@
 module fields;
 
 import std.conv;
-import qc, container, validators, widgets;
+import qc, type, container, validators, widgets;
 
 abstract class Field
 {
@@ -10,41 +10,51 @@ abstract class Field
 
 	public:
 		Container container;
-		string id, label, name, hint, onClick, onChange;
+		string id, label, name, hint, onClick, onChange, onLoad;
 		bool required, unique, pk, index;
 		Validator[string] validators;
 		string[] errors, classes;
 		FieldWidget widget, ajaxWidget;
 		
-		this ()
+		this () @safe
 		{}
-		Field addValidator (string cl, Validator v)
+		Field addValidator (string cl, Validator v) @safe
 		{
 			validators[cl] = v;
 			return this;
 		}
-		uint maxLen (uint v)
+		uint maxLen (uint v) @safe
 		{
 			maxLen_ = v;
 			return v;
 		}
-		uint maxLen ()
+		uint maxLen () const
 		{
 			return maxLen_;
 		}
-		string asHtml ()
+		string asHtml () @safe const
+		in
+		{
+			assert(widget !is null);
+		}
+		body
 		{
 			return widget(this);
 		}
-		string js ()
+		string js () @safe const
+		in
+		{
+			assert(widget !is null);
+		}
+		body
 		{
 			return widget.js(this);
 		}
 		
 		abstract:
-			bool valid ();
-			string defaultValAsString ();
-			string valAsString ();
+			bool valid () @safe;
+			string defaultValAsString () @safe const;
+			string valAsString () @safe const;
 }
 
 class TextField: Field
@@ -55,30 +65,30 @@ class TextField: Field
 	public:
 		string defaultVal;
 		
-		this ()
+		this () @safe
 		{
 			super();
 		}
-		string value (string v)
+		string value (string v) @safe
 		{
 			value_ = v;
 			return v;
 		}
-		uint value (uint v)
+		uint value (uint v) @trusted
 		{
 			value_ = to!string(v);
 			return v;
 		}
-		int value (int v)
+		int value (int v) @trusted
 		{
 			value_ = to!string(v);
 			return v;
 		}
-		string value ()
+		string value () @safe const
 		{
 			return value_;
 		}
-		bool valid ()
+		bool valid () @trusted
 		{
 			bool res = true;
 			foreach (v; validators)
@@ -89,23 +99,23 @@ class TextField: Field
 				}
 			return res;
 		}
-		string valAsString ()
+		string valAsString () @safe const
 		{
 			return value;
 		}
-		string defaultValAsString ()
+		string defaultValAsString () @safe const
 		{
 			return defaultVal;
 		}
-		uint minLen ()
+		uint minLen () const
 		{
 			auto v = "length" in validators;
 			if (v is null)
 				return 0;
-			assert(typeid(v) == typeid(LengthValidator));
+			assert(isA!LengthValidator(*v));
 			return (cast(LengthValidator)*v).min;
 		}
-		uint minLen (uint len)
+		uint minLen (uint len) @safe
 		{
 			auto v = LengthValidator.key in validators;
 			if (v is null)
@@ -114,15 +124,15 @@ class TextField: Field
 				(cast(LengthValidator)*v).min = len;
 			return len;	
 		}
-		uint maxLen ()
+		uint maxLen () const
 		{
 			auto v = "length" in validators;
 			if (v is null)
 				return 0;
-			assert(typeid(v) == typeid(LengthValidator));
+			assert(isA!LengthValidator(*v));
 			return (cast(LengthValidator)*v).max;
 		}
-		uint maxLen (uint len)
+		uint maxLen (uint len) @safe
 		{
 			auto v = LengthValidator.key in validators;
 			if (v is null)
@@ -151,7 +161,6 @@ class TextField: Field
 		
 	unittest
 	{
-		scope t = new Test!TextField;
 		auto f = new TextField;
 		f.value = 10;
 		assert("10" == f.value);
@@ -165,7 +174,7 @@ class TextField: Field
 class LoginField: TextField
 {
 	public:
-		this ()
+		this () @safe
 		{
 			super();
 			minLen = 1;
@@ -174,15 +183,25 @@ class LoginField: TextField
 			unique = true;
 			//regexp = "^[a-zA-Z0-9_%.%-]+$";
 		}
+		this (string label) @safe
+		{
+			this();
+			this.label = label;
+		}
 }
 
 class PasswordField: TextField
 {
 	protected:
 	public:
-		this (bool required)
+		this () @safe
 		{
-			this.required = required;
+			this.required = true;
+		}
+		this (string label) @safe
+		{
+			this();
+			this.label = label;
 		}
 }
 
@@ -194,26 +213,26 @@ class IntField: Field
 	public:
 		int defaultVal;
 	
-		string value (string v)
+		string value (string v) @trusted
 		{
 			value_ = to!int(v);
 			return v;
 		}
-		uint value (uint v)
+		uint value (uint v) @safe
 		{
 			value_ = cast(int)v;
 			return v;
 		}
-		int value (int v)
+		int value (int v) @safe
 		{
 			value_ = v;
 			return v;
 		}
-		int value ()
+		int value () @safe const
 		{
 			return value_;
 		}
-		bool valid ()
+		bool valid () @trusted
 		{
 			bool res = true;
 			foreach (v; validators)
@@ -224,11 +243,11 @@ class IntField: Field
 				}
 			return res;
 		}
-		string valAsString ()
+		string valAsString () @trusted const
 		{
 			return to!string(value);
 		}
-		string defaultValAsString ()
+		string defaultValAsString () @trusted const
 		{
 			return to!string(defaultVal);
 		}
@@ -236,7 +255,6 @@ class IntField: Field
 		
 	unittest
 	{
-		scope t = new Test!IntField;
 		auto f = new IntField;
 		f.value = "10";
 		assert(10 == f.value);
@@ -251,26 +269,26 @@ class BoolField: Field
 	public:
 		bool defaultVal;
 		
-		string value (string v)
+		string value (string v) @safe
 		{
 			value_ = v !is null && v.length;
 			return v;
 		}
-		uint value (uint v)
+		uint value (uint v) @safe
 		{
 			value_ = cast(bool)v;
 			return v;
 		}
-		int value (int v)
+		int value (int v) @safe
 		{
 			value_ = cast(bool)v;
 			return v;
 		}
-		bool value ()
+		bool value () @safe const
 		{
 			return value_;
 		}
-		bool valid ()
+		bool valid () @trusted
 		{
 			bool res = true;
 			foreach (v; validators)
@@ -281,19 +299,17 @@ class BoolField: Field
 				}
 			return res;
 		}
-		string valAsString ()
+		string valAsString () @safe const
 		{
 			return value? "true" : "false";
 		}
-		string defaultValAsString ()
+		string defaultValAsString () @safe const
 		{
 			return defaultVal? "true" : "false";
 		}
-	
 		
 	unittest
 	{
-		scope t = new Test!BoolField;
 		auto f = new BoolField;
 		f.value = "1";
 		assert(f.value);

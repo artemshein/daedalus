@@ -45,7 +45,6 @@ class VoidAction: Action
 
 	unittest
 	{
-		scope t = new Test!Action();
 		uint u;
 		void test1 ()
 		{
@@ -120,7 +119,6 @@ class TypedAction (ActType): Action
 
 unittest
 {
-	scope t = new Test!TypedAction();
 	uint u;
 	void test1 (uint i)
 	{
@@ -435,112 +433,114 @@ class ActionParser: UnaryParser
 
 	unittest
 	{
-		new Test!(VoidAction)(
+		uint ui;
+		void setUi ()
 		{
-			uint ui;
-			void setUi ()
-			{
-				ui = 6;
-			}
-			auto p = char_('&')[&setUi];
-			auto s = "F";
-			assert(!p(s));
-			assert(uint.init == ui);
-			s = "&saff";
-			assert(p(s));
-			assert(6 == ui);
-			// 2 actions
-			ui = 0;
-			uint ab;
-			void setAb ()
-			{
-				ab = 20;
-			}
-			auto p2 = p[&setAb];
-			s = "&";
-			assert(p(s));
-			assert(6 == ui);
-			assert(uint.init == ab);
-			ui = typeof(ui).init;
-			s = "&";
-			assert(p2(s));
-			assert(6 == ui);
-			assert(20 == ab);
-		});
-		new Test!(TypedAction, "!(void delegate (char))")(
+			ui = 6;
+		}
+		auto p = char_('&')[&setUi];
+		auto s = "F";
+		assert(!p(s));
+		assert(uint.init == ui);
+		s = "&saff";
+		assert(p(s));
+		assert(6 == ui);
+		// 2 actions
+		ui = 0;
+		uint ab;
+		void setAb ()
 		{
-			char ch;
-			void setChar (char c)
-			{
-				ch = c;
-			}
-			auto p = char_('&')[&setChar];
-			auto s = "F";
-			assert(!p(s));
-			assert(char.init == ch);
-			s = "&saff";
-			assert(p(s));
-			assert('&' == ch);
-		});
-		new Test!(TypedAction, "!(void delegate (string))")(
+			ab = 20;
+		}
+		auto p2 = p[&setAb];
+		s = "&";
+		assert(p(s));
+		assert(6 == ui);
+		assert(uint.init == ab);
+		ui = typeof(ui).init;
+		s = "&";
+		assert(p2(s));
+		assert(6 == ui);
+		assert(20 == ab);
+	}
+	
+	unittest
+	{
+		char ch;
+		void setChar (char c)
 		{
-			string value;
-			void setValue (string s)
-			{
-				value = s;
-			}
-			auto s = "ABCD";
-			auto p = string_("ABcd")[&setValue];
-			assert(!p(s));
-			assert("" == value);
-			s = "ABcdEF";
-			assert(p(s));
-			assert("ABcd" == value);
-		});
-		new Test!(TypedAction, "!(void delegate (uint))")(
+			ch = c;
+		}
+		auto p = char_('&')[&setChar];
+		auto s = "F";
+		assert(!p(s));
+		assert(char.init == ch);
+		s = "&saff";
+		assert(p(s));
+		assert('&' == ch);
+	}
+	
+	unittest
+	{
+		string value;
+		void setValue (string s)
 		{
-			uint value;
-			void setValue (uint v)
-			{
-				value = v;
-			}
-			auto p = uint_[&setValue];
-			auto s = "ABCD";
-			assert(!p(s));
-			assert(uint.init == value);
-			s = "2432";
-			assert(p(s));
-			assert(2432 == value);
-		});
-		new Test!(TypedAction, "!(void delegate (int))")(
+			value = s;
+		}
+		auto p = string_("ABcd")[&setValue];
+		auto s = "ABCD";
+		assert(!p(s));
+		assert("" == value);
+		s = "ABcdEF";
+		assert(p(s));
+		assert("ABcd" == value);
+	}
+	
+	unittest
+	{
+		uint value;
+		void setValue (uint v)
 		{
-			int value;
-			void setValue (int v)
-			{
-				value = v;
-			}
-			auto p = int_[&setValue];
-			auto s = "ABCD";
-			assert(!p(s));
-			assert(int.init == value);
-			s = "-2432";
-			assert(p(s));
-			assert(-2432 == value);
-		});
-		new Test!(TypedAction, "!(void delegate (double))")(
+			value = v;
+		}
+		auto p = uint_[&setValue];
+		auto s = "ABCD";
+		assert(!p(s));
+		assert(uint.init == value);
+		s = "2432";
+		assert(p(s));
+		assert(2432 == value);
+	}
+	
+	unittest
+	{
+		int value;
+		void setValue (int v)
 		{
-			double value;
-			void setValue (double v)
-			{
-				value = v;
-			}
-			auto p = double_[&setValue];
-			auto s = "ABCD";
-			assert(!p(s));
-			s = "-2432.54e-2";
-			assert(p(s));
-			assert((value - -2432.54e-2) < 0.01);
-		});
+			value = v;
+		}
+		auto p = int_[&setValue];
+		auto s = "ABCD";
+		assert(!p(s));
+		assert(int.init == value);
+		s = "-2432";
+		assert(p(s));
+		assert(-2432 == value);
+	}
+	
+	unittest
+	{
+		double value;
+		void setValue (double v)
+		{
+			value = v;
+		}
+		auto p = double_[&setValue];
+		auto s = "ABCD";
+		assert(!p(s));
+		s = "-2432.54e-2";
+		assert(p(s));
+		assert((value - -2432.54e-2) < 0.01);
 	}
 }
 
@@ -583,47 +583,46 @@ class PrimitiveParser (Type): Parser
 
 unittest
 {
-	new Test!uint_(
-	{
-		auto s = (78_245_235).stringof;
-		assert(uint_(s));
-		s = (0).stringof;
-		assert(uint_(s));
-		s = (-45_235_901).stringof;
-		assert(!uint_(s));
-		s = "g";
-		assert(!uint_(s));
-		s = "";
-		assert(!uint_(s));
-	});
-	new Test!int_(
-	{
-		auto s = (-78_245_235).stringof;
-		assert(int_(s));
-		s = (0).stringof;
-		assert(int_(s));
-		s = (45_235_901).stringof;
-		assert(int_(s));
-		s = "g";
-		assert(!int_(s));
-		s = "";
-		assert(!int_(s));
-	});
-	new Test!double_(
-	{
-		auto s = "-78245.5294e42";
-		assert(double_(s));
-		s = "0.00001";
-		assert(double_(s));
-		s = "546";
-		assert(double_(s));
-		s = ".05e-24";
-		assert(double_(s));
-		s = "ebcd";
-		assert(!double_(s));
-		s = "";
-		assert(!double_(s));
-	});
+	auto s = (78_245_235).stringof;
+	assert(uint_(s));
+	s = (0).stringof;
+	assert(uint_(s));
+	s = (-45_235_901).stringof;
+	assert(!uint_(s));
+	s = "g";
+	assert(!uint_(s));
+	s = "";
+	assert(!uint_(s));
+}
+
+unittest
+{
+	auto s = (-78_245_235).stringof;
+	assert(int_(s));
+	s = (0).stringof;
+	assert(int_(s));
+	s = (45_235_901).stringof;
+	assert(int_(s));
+	s = "g";
+	assert(!int_(s));
+	s = "";
+	assert(!int_(s));
+}
+
+unittest
+{
+	auto s = "-78245.5294e42";
+	assert(double_(s));
+	s = "0.00001";
+	assert(double_(s));
+	s = "546";
+	assert(double_(s));
+	s = ".05e-24";
+	assert(double_(s));
+	s = "ebcd";
+	assert(!double_(s));
+	s = "";
+	assert(!double_(s));
 }
 
 /++
@@ -662,7 +661,6 @@ class CharParser: Parser
 
 	unittest
 	{
-		scope t = new Test!CharParser();
 		auto p = char_('A');
 		auto s = "ABCDE";
 		assert(1 == p(s));
@@ -704,7 +702,6 @@ class EndParser: Parser
 
 	unittest
 	{
-		scope t = new Test!EndParser();
 		auto s = "";
 		assert(end(s));
 		s = "A";
@@ -751,7 +748,6 @@ class StrParser: Parser
 
 	unittest
 	{
-		scope t = new Test!StrParser();
 		auto p = string_("CDE");
 		auto s = "CDEFGH";
 		assert(p(s));
@@ -799,7 +795,6 @@ class SequenceParser: NaryParser
 
 	unittest
 	{
-		scope t = new Test!SequenceParser();
 		auto p = char_('A') >> 'B' >> 'C' >> 'D';
 		auto s = "ABCDE";
 		assert(p(s));
@@ -920,7 +915,6 @@ class RepeatParser: UnaryParser
 
 	unittest
 	{
-		scope t = new Test!RepeatParser();
 		auto p = char_('Z')[3..5];
 		auto s = "";
 		assert(!p(s));
@@ -1017,7 +1011,6 @@ class AndParser: NaryParser
 
 	unittest
 	{
-		scope t = new Test!AndParser();
 		auto p = char_('A') + string_("ABC");
 		auto s = "";
 		assert(!p(s, space));
@@ -1075,7 +1068,6 @@ class OrParser: NaryParser
 
 	unittest
 	{
-		scope t = new Test!OrParser();
 		auto p = string_("ABC") | string_("DEF");
 		auto s = "\r\n";
 		assert(!p(s, space));
@@ -1158,7 +1150,6 @@ class NotParser: UnaryParser
 
 	unittest
 	{
-		scope t = new Test!NotParser();
 		auto ap = char_('A') + string_("ABC");
 		auto p = -ap;
 		assert(-p is ap);
@@ -1211,7 +1202,6 @@ class RangeParser: Parser
 
 	unittest
 	{
-		scope t = new Test!RangeParser();
 		auto p = range('A', 'C');
 		auto s = "  ";
 		assert(!p(s, space));
@@ -1289,7 +1279,6 @@ class LazyParser: Parser
 
 	unittest
 	{
-		scope t = new Test!LazyParser();
 		Parser p = char_('A');
 		auto p2 = &p >> char_('C');
 		auto s = "AC";
@@ -1420,7 +1409,6 @@ version(unittest)
 
 unittest
 {
-	scope t = new Test!ContextParser();
 	StmtParser stmt;
 	ExprParser expr;
 	stmt = new StmtParser(&expr);
@@ -1558,116 +1546,120 @@ version(unittest)
 
 unittest
 {
-	new Test!alpha(
+	auto s = "b";
+	assert(alpha(s, space));
+	s = "D";
+	assert(alpha(s, space));
+	s = "  D";
+	assert(alpha(s, space));
+	s = "0";
+	assert(!alpha(s, space));
+	s = "\r\n";
+	assert(!alpha(s, space));
+}
+
+unittest
+{
+	auto s = "8";
+	assert(digit(s));
+	s = "2";
+	assert(digit(s));
+	s = "h";
+	assert(!digit(s));
+	s = "";
+	assert(!digit(s));
+}
+
+unittest
+{
+	auto s = "8";
+	assert(alnum(s));
+	s = "y";
+	assert(alnum(s));
+	s = "$";
+	assert(!alnum(s));
+	s = "";
+	assert(!alnum(s));
+}
+
+unittest
+{
+	auto s = "8";
+	assert(anychar(s));
+	s = "y";
+	assert(anychar(s));
+	s = "$";
+	assert(anychar(s));
+	s = "";
+	assert(!anychar(s));
+}
+
+unittest
+{
+	auto s = "\r\n";
+	assert(eol(s));
+	s = "\n";
+	assert(eol(s));
+	s = "\r";
+	assert(eol(s));
+	s = "\n\r";
+	assert(eol(s));
+	s = "g";
+	assert(!eol(s));
+	s = "";
+	assert(!eol(s));
+}
+
+unittest
+{	// Complex parser
+	uint a, b;
+	void setA ()
 	{
-		auto s = "b";
-		assert(alpha(s, space));
-		s = "D";
-		assert(alpha(s, space));
-		s = "  D";
-		assert(alpha(s, space));
-		s = "0";
-		assert(!alpha(s, space));
-		s = "\r\n";
-		assert(!alpha(s, space));
-	});
-	new Test!digit(
+		assert(0 == b);
+		a += 20;
+	}
+	void setB ()
 	{
-		auto s = "8";
-		assert(digit(s));
-		s = "2";
-		assert(digit(s));
-		s = "h";
-		assert(!digit(s));
-		s = "";
-		assert(!digit(s));
-	});
-	new Test!alnum(
+		assert(60 == a);
+		b = 30;
+	}
+	auto ch = char_('a');
+	auto chact = ch[&setA];
+	auto rep = +chact;
+	auto p = rep[&setB];
+	assert((cast(ActionParser)p).parser is rep);
+	assert((cast(RepeatParser)(cast(ActionParser)p).parser).parser is chact);
+	assert((cast(ActionParser)(cast(RepeatParser)(cast(ActionParser)p).parser).parser).parser is ch);
+	auto s = "aaa";
+	assert(p(s));
+}
+
+unittest
+{	// Complex parser 2
+	uint a, b;
+	void setA ()
 	{
-		auto s = "8";
-		assert(alnum(s));
-		s = "y";
-		assert(alnum(s));
-		s = "$";
-		assert(!alnum(s));
-		s = "";
-		assert(!alnum(s));
-	});
-	new Test!anychar(
+		assert(0 == b);
+		a += 20;
+	}
+	void setB ()
 	{
-		auto s = "8";
-		assert(anychar(s));
-		s = "y";
-		assert(anychar(s));
-		s = "$";
-		assert(anychar(s));
-		s = "";
-		assert(!anychar(s));
-	});
-	new Test!eol(
-	{
-		auto s = "\r\n";
-		assert(eol(s));
-		s = "\n";
-		assert(eol(s));
-		s = "\r";
-		assert(eol(s));
-		s = "\n\r";
-		assert(eol(s));
-		s = "g";
-		assert(!eol(s));
-		s = "";
-		assert(!eol(s));
-	});
-	new Test!Parser(
-	{	// Complex parser
-		uint a, b;
-		void setA ()
-		{
-			assert(0 == b);
-			a += 20;
-		}
-		void setB ()
-		{
-			assert(60 == a);
-			b = 30;
-		}
-		auto ch = char_('a');
-		auto chact = ch[&setA];
-		auto rep = +chact;
-		auto p = rep[&setB];
-		assert((cast(ActionParser)p).parser is rep);
-		assert((cast(RepeatParser)(cast(ActionParser)p).parser).parser is chact);
-		assert((cast(ActionParser)(cast(RepeatParser)(cast(ActionParser)p).parser).parser).parser is ch);
-		auto s = "aaa";
-		assert(p(s));
-	});
-	new Test!Parser(
-	{	// Complex parser 2
-		uint a, b;
-		void setA ()
-		{
-			assert(0 == b);
-			a += 20;
-		}
-		void setB ()
-		{
-			assert(60 == a);
-			b = 30;
-		}
-		Parser p2;
-		auto p = (+(lazy_(&p2)[&setA]))[&setB];
-		p2 = char_('a');
-		auto s = "aaa";
-		assert(p(s));
-	});
-	new Test!ContextParser(
-	{	// Complex parser 3
-		auto p = new TestContextParser;
-		auto s = "abcdef";
-		auto c = new TestContext;
-		assert(p(s, c));
-		assert("abcdef" == c.val);
-		
-	});
+		assert(60 == a);
+		b = 30;
+	}
+	Parser p2;
+	auto p = (+(lazy_(&p2)[&setA]))[&setB];
+	p2 = char_('a');
+	auto s = "aaa";
+	assert(p(s));
+}
+
+unittest
+{	// Complex parser 3
+	auto p = new TestContextParser;
+	auto s = "abcdef";
+	auto c = new TestContext;
+	assert(p(s, c));
+	assert("abcdef" == c.val);
+	
 }

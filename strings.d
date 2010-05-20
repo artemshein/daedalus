@@ -2,12 +2,12 @@ module strings;
 
 import std.regex;
 
-string quoteEscape (string s)
+string quoteEscape (string s) @trusted
 {
 	return replace(s, regex("\"", "g"), "\"");
 }
 
-string interpolate (string s, string[string] v)
+string interpolate (string s, in string[string] v) @trusted
 {
 	string replacer (RegexMatch!(string) m)
 	{

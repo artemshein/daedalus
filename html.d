@@ -9,7 +9,7 @@ static this ()
 	htmlEscapeSequences = ["<": "&lt;", ">": "&rt;"];
 }
 
-string htmlEscape (string s)
+string htmlEscape (string s) @trusted
 {
 	string htmlEscapeReplacer (RegexMatch!(string) m)
 	{
@@ -20,6 +20,5 @@ string htmlEscape (string s)
 
 unittest
 {
-	scope t = new Test!html;
 	assert(htmlEscape("<b>abc</b>") == "&lt;b&rt;abc&lt;/b&rt;");
 }

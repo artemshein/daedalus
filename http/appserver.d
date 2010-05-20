@@ -27,16 +27,12 @@ class Connection: WsApi
 		{
 			super(tmpDir);
 		}
-		auto close ()
+		~this ()
 		{
 			debug .writeln("Closing socket");
 			flush;
 			socket.shutdown(SocketShutdown.BOTH);
 			socket.close;
-		}
-		~this ()
-		{
-			close;
 		}
 		auto opCall ()
 		{
@@ -125,8 +121,10 @@ class ConnectionFiber: Fiber
 		Connection conn;
 		void function (WsApi) fAction;
 		void delegate (WsApi) dAction;
+		
 		void run ()
 		{
+			scope(exit) delete conn;
 			try
 			{
 				conn();
@@ -139,15 +137,14 @@ class ConnectionFiber: Fiber
 						dAction(conn);
 				}
 				debug writeln("Closing connection");
-				conn.close;
 			}
 			catch (Exception e)
 			{
 				conn.write("HTTP/1.1 500 " ~ WsApi.responseCodesStrings[500] ~ "\r\nStatus: 500 " ~ WsApi.responseCodesStrings[500] ~ "\r\n\r\nInternal Server Error");
-				conn.close;
 				.writeln("Exception: " ~ to!(string)(e));
 			}
 		}
+		
 	public:
 		this (Connection conn, void function (WsApi) app)
 		in
@@ -156,7 +153,6 @@ class ConnectionFiber: Fiber
 		}
 		body
 		{
-			//this.yield;
 			this.conn = conn;
 			fAction = app;
 			super(&run);
@@ -181,6 +177,7 @@ class AppServer
 		InternetAddress addr;
 		void function (WsApi) fAction;
 		void delegate (WsApi) dAction;
+		
 		this (InternetAddress addr, string tmpDir)
 		{
 			debug writeln("Starting AppServer");
@@ -193,21 +190,26 @@ class AppServer
 			while (true)
 			{
 				auto idx = -1;
-				foreach (i, ref fiber; fibers)
+				foreach (i, fiber; fibers)
 					if (Fiber.State.TERM == fiber.state)
+					{
 						idx = i;
+						fiber.reset;
+						fiber.conn = new Connection(socket.accept, tmpDir);
+					}
 				if (-1 == idx)
 				{
 					idx = fibers.length;
 					fibers.length += 1;
+					fibers[idx] = fAction !is null
+						? new ConnectionFiber(new Connection(socket.accept, tmpDir), fAction)
+						: new ConnectionFiber(new Connection(socket.accept, tmpDir), dAction);
 				}
-				if (fAction !is null)
-					fibers[idx] = new ConnectionFiber(new Connection(socket.accept, tmpDir), fAction);
-				else
-					fibers[idx] = new ConnectionFiber(new Connection(socket.accept, tmpDir), dAction);
+				assert(Fiber.State.HOLD == fibers[idx].state);
 				fibers[idx].call;				
 			}
 		}
+
 	public:
 		this (InternetAddress addr, string tmpDir, void function (WsApi) app)
 		{

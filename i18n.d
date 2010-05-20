@@ -1,6 +1,6 @@
 module i18n;
 
-string tr (string s)
+pure string tr (string s) @safe
 {
 	return s;
 }

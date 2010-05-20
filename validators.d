@@ -1,6 +1,6 @@
 module validators;
 
-import std.conv;//, std.regex;
+import std.conv, std.regex;
 import qc, fields;
 
 abstract class Validator
@@ -11,11 +11,11 @@ abstract class Validator
 		string errorMsg;
 		
 		abstract:
-			bool valid (in string);
-			bool valid (in int);
-			bool valid (in uint);
-			bool valid (in bool);
-			string js ();
+			bool valid (in string) @safe const;
+			bool valid (in int) @safe const;
+			bool valid (in uint) @safe const;
+			bool valid (in bool) @safe const;
+			string js () @safe const;
 }
 
 class FilledValidator: Validator
@@ -23,30 +23,29 @@ class FilledValidator: Validator
 	public:
 		static string key = "filled";
 		
-		bool valid (in string s)
+		bool valid (in string s) @safe const
 		{
 			return s !is null && s.length;
 		}
-		bool valid (in int v)
+		bool valid (in int v) @safe const
 		{
 			return true;
 		}
-		bool valid (in uint v)
+		bool valid (in uint v) @safe const
 		{
 			return true;
 		}
-		bool valid (in bool b)
+		bool valid (in bool b) @safe const
 		{
 			return true;
 		}
-		string js ()
+		string js () @safe const
 		{
 			return "validFilled()";
 		}
 		
 	unittest
 	{
-		scope t = new Test!FilledValidator;
 		auto v = new FilledValidator;
 		assert(!v.valid(""));
 		assert(!v.valid(null));
@@ -71,23 +70,23 @@ class LengthValidator: Validator
 		{
 			this.max = max;
 		}
-		bool valid (in string s)
+		bool valid (in string s) @safe const
 		{
 			return s.length >= min && s.length <= max;
 		}
-		bool valid (in int v)
+		bool valid (in int v) @trusted const
 		{
 			return valid(to!string(v));
 		}
-		bool valid (in uint v)
+		bool valid (in uint v) @trusted const
 		{
 			return valid(to!string(v));
 		}
-		bool valid (in bool v)
+		bool valid (in bool v) @safe const
 		{
 			assert(false, "not implemented");
 		}
-		string js ()
+		string js () @trusted const
 		{
 			return "validLength(" ~ to!string(min) ~ ", "
 				~ (max? to!string(max) : "null") ~ ")";
@@ -95,7 +94,6 @@ class LengthValidator: Validator
 	
 	unittest
 	{
-		scope t = new Test!LengthValidator;
 		auto v = new LengthValidator(3, 5);
 		assert(!v.valid(12));
 		assert(v.valid(123));
@@ -115,7 +113,7 @@ class IntValidator: Validator
 	public:
 		static string key = "int";
 		
-		bool valid (in string s)
+		bool valid (in string s) @trusted const
 		{
 			try
 			{
@@ -127,26 +125,25 @@ class IntValidator: Validator
 			}
 			return true;
 		}
-		bool valid (in int v)
+		bool valid (in int v) @safe const
 		{
 			return true;
 		}
-		bool valid (in uint v)
+		bool valid (in uint v) @safe const
 		{
 			return true;
 		}
-		bool valid (in bool b)
+		bool valid (in bool b) @safe const
 		{
 			return false;
 		}
-		string js ()
+		string js () @safe const
 		{
 			return "validInt()";
 		}
 		
 	unittest
 	{
-		scope t = new Test!IntValidator;
 		auto v = new IntValidator;
 		assert(!v.valid(""));
 		assert(!v.valid("abcd"));
@@ -154,6 +151,7 @@ class IntValidator: Validator
 		assert(v.valid("-245"));
 	}
 }
+
 /+
 class RegexpValidator: Validator
 {		
@@ -185,12 +183,11 @@ class RegexpValidator: Validator
 	
 	unittest
 	{
-		/+scope t = new Test!RegexpValidator;
 		auto v = new RegexpValidator("^abc");
 		assert(!v.valid(""));
 		assert(!v.valid(null));
 		assert(!v.valid("ab"));
 		assert(v.valid("abc"));
-		assert(v.valid("abcdef"));+/
+		assert(v.valid("abcdef"));
 	}
 }+/

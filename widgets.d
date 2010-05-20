@@ -1,7 +1,7 @@
 module widgets;
 
-import std.string, std.conv;
-import strings, i18n, html, forms, fields;
+import std.string, std.conv, std.stdio;
+import type, strings, i18n, html, forms, fields;
 
 abstract class Widget
 {
@@ -10,35 +10,35 @@ abstract class Widget
 abstract class FieldWidget: Widget
 {
 	protected:
-		string fieldId (Field f, Form form)
+		string fieldId (in Field f, in Form form) @trusted const
 		{
 			auto id = f.id;
-			return id.length? id : (form.id ~ toupper(f.name));
+			return id.length? id : (form.id ~ capitalize(f.name));
 		}
-		string renderType ()
+		string renderType () @safe const
 		{
 			return " type=\"" ~ quoteEscape(type) ~ "\"";
 		}
-		string renderName (Field f)
+		string renderName (in Field f) @safe const
 		{
 			return " name=\"" ~ quoteEscape(htmlEscape(f.name)) ~ "\"";
 		}
-		string renderId (Field f, Form form)
+		string renderId (in Field f, in Form form) @safe const
 		{
 			return " id=\"" ~ quoteEscape(htmlEscape(fieldId(f, form))) ~ "\"";
 		}
-		string renderValue (Field f)
+		string renderValue (in Field f) @safe const
 		{
 			auto v = f.valAsString;
 			if (!v.length)
 				v = f.defaultValAsString;
 			return " value=\"" ~ quoteEscape(htmlEscape(v)) ~ "\"";
 		}
-		string renderHint (Field f)
+		string renderHint (in Field f) @safe const
 		{
 			return f.hint.length? ("<span class=\"fieldHint\">" ~ tr(f.hint) ~ "</span>") : "";
 		}
-		string renderClasses (Field f)
+		string renderClasses (in Field f) @trusted const
 		{
 			auto classes = f.classes;
 			if (classes.length)
@@ -46,33 +46,36 @@ abstract class FieldWidget: Widget
 			else
 				return f.errors.length? " class=\"error\"" : "";
 		}
-		string renderOnClick (Field f)
+		string renderOnClick (in Field f) @safe const
 		{
 			return f.onClick.length? (" onclick=\"" ~ quoteEscape(f.onClick) ~ "\"") : "";
 		}
-		string renderOnChange (Field f)
+		string renderOnChange (in Field f) @safe const
 		{
 			return f.onChange.length? (" onchange=\"" ~ quoteEscape(f.onChange) ~ "\"") : "";
 		}
 	
 	public:
 		string type;
-		Form form;
+		const Form form;
 		
-		this (Form form)
+		this (in Form form) @safe
 		{
 			this.form = form;
 		}
+		string js (in Field) @safe const
+		{
+			return "";
+		}
 		
 		abstract:
-			string opCall (Field);
-			string js (Field);
+			string opCall (in Field, in string tail = "") @safe const;
 }
 
 class InputFieldWidget: FieldWidget
 {
 	protected:
-		string renderDisabled (Field f)
+		string renderDisabled (in Field f) @safe const
 		{
 			return disabled? " disabled=\"disabled\"" : "";
 		}
@@ -80,11 +83,11 @@ class InputFieldWidget: FieldWidget
 	public:
 		bool disabled;
 		
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 		}
-		string opCall (Field f, string tail = "")
+		string opCall (in Field f, in string tail = "") @safe const
 		{
 			return "<input" ~ renderType ~ renderName(f) ~ renderId(f, form)
 				~ renderValue(f) ~ renderClasses(f) ~ renderOnClick(f)
@@ -99,11 +102,11 @@ class FileInputFieldWidget: InputFieldWidget
 		string type = "file";
 		
 	public:
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 		}
-		string opCall (Field field, string tail = "")
+		string opCall (in Field field, in string tail = "") @safe const
 		{
 			return "<input" ~ renderType ~ renderName(field)
 				~ renderId(field, form) ~ renderClasses(field)
@@ -115,7 +118,7 @@ class FileInputFieldWidget: InputFieldWidget
 class TextAreaFieldWidget: FieldWidget
 {
 	protected:
-		string renderValue (Field f)
+		string renderValue (in Field f) @safe const
 		{
 			auto v = f.valAsString;
 			if (!v.length)
@@ -124,12 +127,12 @@ class TextAreaFieldWidget: FieldWidget
 		}
 		
 	public:
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 			type = "checkbox";
 		}
-		string opCall (Field f)
+		string opCall (in Field f, in string tail = "") @safe const
 		{
 			return "<textarea" ~ renderName(f) ~ renderId(f, form)
 				~ renderClasses(f) ~ renderOnClick(f) ~ renderOnChange(f)
@@ -140,32 +143,32 @@ class TextAreaFieldWidget: FieldWidget
 class CheckboxFieldWidget: InputFieldWidget
 {
 	public:
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 			type = "checkbox";
 		}
-		string opCall (Field f)
+		string opCall (in Field f, in string tail = "") @safe const
 		{
-			string tail;
 			auto v = f.valAsString;
+			auto tTail = tail.idup;
 			if ("1" == v || "true" == v)
-				tail = " checked=\"checked\"";
+				tTail = " checked=\"checked\"";
 			return "<input" ~ renderType ~ renderName(f) ~ renderId(f, form)
 				~ " value=\"1\"" ~ renderClasses(f) ~ renderOnClick(f)
-				~ renderOnChange(f) ~ tail ~ " />";
+				~ renderOnChange(f) ~ tTail ~ " />";
 		}
 }
 
 class TextInputFieldWidget: InputFieldWidget
 {
 	public:
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 			type = "text";
 		}
-		string opCall (Field f, string tail = "")
+		string opCall (in Field f, in string tail = "") @trusted const
 		{
 			auto maxLen = f.maxLen;
 			return InputFieldWidget(f, tail ~ (maxLen? (" maxlength=\"" ~ to!string(maxLen) ~ "\"") : ""));
@@ -175,7 +178,7 @@ class TextInputFieldWidget: InputFieldWidget
 class HiddenInputFieldWidget: TextInputFieldWidget
 {
 	public:
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 			type = "hidden";
@@ -185,7 +188,7 @@ class HiddenInputFieldWidget: TextInputFieldWidget
 class PasswordInputFieldWidget: TextInputFieldWidget
 {
 	public:
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 			type = "password";
@@ -195,7 +198,7 @@ class PasswordInputFieldWidget: TextInputFieldWidget
 class ButtonFieldWidget: InputFieldWidget
 {
 	public:
-		this (Form form)
+		this (in Form form) @safe
 		{
 			super(form);
 			type = "button";
@@ -204,7 +207,7 @@ class ButtonFieldWidget: InputFieldWidget
 
 class SubmitButtonFieldWidget: ButtonFieldWidget
 {
-	this (Form form)
+	this (in Form form) @safe
 	{
 		super(form);
 		type = "submit";
@@ -222,29 +225,29 @@ abstract class FormWidget: Widget
 			beforeButtons,
 			afterButtons,
 			afterFields;
-	public:
-		string fieldId (Field f, Form form)
+			
+		string fieldId (in Field f, in Form form) @trusted const
 		{
 			auto id = f.id;
-			return id.length? id : (form.id ~ toupper(f.name));
+			return id.length? id : (form.id ~ capitalize(f.name));
 		}
-		string renderId (Form form)
+		string renderId (in Form form) @safe const
 		{
 			auto id = form.id;
 			return id.length? (" id=\"" ~ quoteEscape(id) ~ "\"") : "";
 		}
-		string renderAction (Form form)
+		string renderAction (in Form form) @safe const
 		{
 			auto action = form.action;
 			return action.length? (" action=\"" ~ quoteEscape(action) ~ "\"") : "";
 		}
-		string renderFormHeader (Form form)
+		string renderFormHeader (in Form form) @trusted const
 		{
 			bool fileUploadFlag;
-			foreach (f; form.fieldsByName)
+			foreach (f; form.fields)
 			{
 				auto widget = f.widget;
-				if (widget !is null && typeid(widget) == typeid(FileInputFieldWidget))
+				if (widget !is null && isA!FileInputFieldWidget(widget))
 					fileUploadFlag = true;
 			}
 			return
@@ -252,7 +255,7 @@ abstract class FormWidget: Widget
 					~ (fileUploadFlag? " enctype=\"multipart/form-data\"" : "")
 					~ ">";
 		}
-		string renderLabel (Form form, Field field)
+		string renderLabel (in Form form, in Field field) @trusted const
 		{
 			auto label = field.label;
 			if (label is null || !label.length)
@@ -261,10 +264,10 @@ abstract class FormWidget: Widget
 			if (id is null || !id.length)
 				return "<div class=\"fieldLabel\">" ~ label ~ ":</div>";
 			return "<div class=\"fieldLabel\"><label for=\""
-				~ quoteEscape(htmlEscape(id)) ~ ">"
-				~ toupper(tr(field.label)) ~ "</label>:</div>";
+				~ quoteEscape(htmlEscape(id)) ~ "\">"
+				~ capitalize(tr(field.label)) ~ "</label>:</div>";
 		}
-		string renderLabelCheckbox (Form form, Field field)
+		string renderLabelCheckbox (in Form form, in Field field) @safe const
 		{
 			auto label = field.label;
 			if (label is null || !label.length)
@@ -276,7 +279,7 @@ abstract class FormWidget: Widget
 				~ quoteEscape(htmlEscape(id)) ~ "\">"
 				~ tr(label) ~ "</label></span>";
 		}
-		string renderField (Form form, Field field)
+		string renderField (in Form form, in Field field) @safe const
 		{
 			auto html = field.asHtml;
 			auto js = field.js;
@@ -290,47 +293,70 @@ abstract class FormWidget: Widget
 			}
 			return html; //, (js or field:onLoad() and ((js or "")..(field:onLoad() or "")))
 		}
-		string renderFields (Form form)
+		string renderFieldHtml (in Form form, in Field f) @safe const
+		{
+			auto html = f.asHtml;
+			auto errors = f.errors;
+			if (errors.length)
+			{
+				html ~= "<ul class=\"fieldErrors\">";
+				foreach (error; errors)
+					html ~= "<li>" ~ error ~ "</li>";
+				html ~= "</ul>";
+			}
+			return html;
+		}
+		string renderFieldJs (in Form form, in Field field) @safe const
+		{
+			return field.js ~ field.onLoad;
+		}
+		string renderFields (in Form form) @trusted const
 		{
 			string html, js;
 			// Hidden fields first
 			foreach (field; form.hiddenFields)
-				html ~= renderField(form, field);
+				html ~= renderFieldHtml(form, field);
 			html ~= beforeFields;
-			/+if "table" == type(form:fieldsList()[1]) then
-				for _, fieldset in ipairs(form:fieldsList()) do
-					html = html.."<fieldset title="..("%q"):format(fieldset.title:tr():capitalize()).."><legend>"..fieldset.title:tr():capitalize().."</legend>"
-					for _, field in ipairs(fieldset.fields) do
-						local v = form:field(field)
-						local widget = v:widget()
-						if widget and not widget:isA(widgets.HiddenInput) and not widget:isA(widgets.Button) then
-							local fieldHtml, fieldJs = self:renderField(form, v)
-							if fieldJs then js = (js or "")..fieldJs end
-							if v:widget():isA(widgets.Checkbox) then
-								html = html..self._beforeLabel..self._afterLabel..self._beforeField..fieldHtml.." "..self:renderLabelCheckbox(form, v)..self._afterField
+			if (form.fieldsets.length)
+				foreach (label, fieldset; form.fieldsets)
+				{
+					html ~= "<fieldset title=\"" ~ quoteEscape(capitalize(tr(label))) ~ "\"><legend>" ~ capitalize(tr(label)) ~ "</legend>";
+					foreach (fName; fieldset)
+					{
+						auto f = form.fields[fName];
+						auto widget = f.widget;
+						if (widget && !isA!HiddenInputFieldWidget(widget) && !isA!ButtonFieldWidget(widget))
+						{
+							auto fHtml = renderFieldHtml(form, f);
+							js ~= renderFieldJs(form, f);
+							if (isA!CheckboxFieldWidget(f.widget))
+								html ~= beforeLabel ~ afterLabel ~ beforeField ~ fHtml ~ " " ~ renderLabelCheckbox(form, f) ~ afterField;
 							else
-								html = html..self._beforeLabel..self:renderLabel(form, v)..self._afterLabel..self._beforeField..fieldHtml..self._afterField
-							end
-						end
-					end
-					html = html.."</fieldset>"
-				end
+								html ~= beforeLabel ~ renderLabel(form, f) ~ afterLabel ~ beforeField ~ fHtml ~ afterField;
+						}
+					}
+					html ~= "</fieldset>";
+				}
 			else
-				-- Then visible fields
-				for _, v in ipairs(form:visibleFields()) do
-					local fieldHtml, fieldJs = self:renderField(form, v)
-					if fieldJs then js = (js or "")..fieldJs end
-					if v:widget():isA(widgets.Checkbox) then
-						html = html..self._beforeLabel..self._afterLabel..self._beforeField..fieldHtml.." "..self:renderLabelCheckbox(form, v)..self._afterField
+				foreach (f; form.visibleFields)
+				{
+					auto fHtml = renderFieldHtml(form, f);
+					js ~= renderFieldJs(form, f);
+					if (isA!CheckboxFieldWidget(f.widget))
+						html ~= beforeLabel ~ afterLabel ~ beforeField
+							~ fHtml ~ " " ~ renderLabelCheckbox(form, f)
+							~ afterField;
 					else
-						html = html..self._beforeLabel..self:renderLabel(form, v)..self._afterLabel..self._beforeField..fieldHtml..self._afterField
-					end
-				end
-			end+/
+						html ~= beforeLabel ~ renderLabel(form, f)
+							~ afterLabel ~ beforeField ~ fHtml ~ afterField;
+				}
 			// Buttons
 			html ~= beforeButtons ~ beforeLabel ~ afterLabel ~ beforeField;
 			foreach (field; form.buttonFields)
-				html ~= renderField(form, field);
+			{
+				assert(field !is null);
+				html ~= renderFieldHtml(form, field);
+			}
 			return html ~ afterField ~ afterButtons ~ afterFields
 				~ (js.length
 					? "<script type=\"text/javascript\" language=\"JavaScript\">//<![CDATA[\n"
@@ -338,11 +364,11 @@ abstract class FormWidget: Widget
 					: ""
 				);
 		}
-		string renderFormEnd (Form form)
+		string renderFormEnd (in Form form) @safe const
 		{
 			return "</form>";
 		}
-		string renderJs (Form form)
+		string renderJs (in Form form) @trusted const
 		{
 			auto validationFunc = "function(){";
 			foreach (name, f; form.fields)
@@ -351,7 +377,7 @@ abstract class FormWidget: Widget
 					auto id = fieldId(f, form);
 					validationFunc ~= "if(!$('#" ~ id ~ "')." ~ v.js
 						~ "){$('#" ~ id ~ "').showError(\""
-						~ quoteEscape(interpolate(v.errorMsg, ["field": toupper(tr(f.label))]))
+						~ quoteEscape(interpolate(v.errorMsg, ["field": capitalize(tr(f.label))]))
 						~ "\");return false;}";
 				}
 			validationFunc ~= "return true;}";
@@ -365,7 +391,9 @@ abstract class FormWidget: Widget
 				)
 				~ "\n//]]></script>";
 		}
-		string opCall (Form form)
+	
+	public:
+		string opCall (in Form form) @safe const
 		{
 			return renderFormHeader(form) ~ renderFields(form)
 				~ renderFormEnd(form) ~ renderJs(form);

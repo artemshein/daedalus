@@ -1,6 +1,7 @@
 module forms;
 
-import strings, container, widgets, fields;
+import std.stdio;
+import type, strings, container, widgets, fields;
 
 abstract class Form: Container
 {
@@ -9,8 +10,13 @@ abstract class Form: Container
 		string id, action, ajaxUrl, ajax;
 		FormWidget widget, ajaxWidget;
 		string[] fieldsOrder;
-				
-		string asHtml ()
+		string[][string] fieldsets;
+		
+		this () @safe
+		{
+			super();
+		}
+		string asHtml () @safe const
 		in
 		{
 			assert(widget !is null, "widget must be set first");
@@ -19,33 +25,48 @@ abstract class Form: Container
 		{
 			return widget(this);
 		}
-		Field[string] activeFields ()
+		const(Field)[string] activeFields () @trusted pure const
 		{
-			static Field[string] res = null;
-			if (res is null)
-				foreach (name; fieldsOrder)
-					res[name] = fieldsByName[name];
+			Field[string] res;
+			foreach (name; fieldsOrder)
+			{
+				assert(name in fields, "no field " ~ name);
+				res[name] = cast(Field) fields[name]; // hmmm...
+			}
 			return res;
 		}
-		Field[string] hiddenFields ()
+		const(Field)[string] hiddenFields () @trusted const
 		{
-			static Field[string] res = null;
-			if (res is null)
-				foreach (name, f; activeFields)
+			Field[string] res;
+			foreach (name, f; activeFields)
+			{
+				assert(f !is null);
+				auto widget = f.widget;
+				if (widget !is null && isA!HiddenInputFieldWidget(widget))
+					res[name] = cast(Field) f; // hmmm...
+			}
+			return res;
+		}
+		const(Field)[string] buttonFields () @trusted const
+		{
+			Field[string] res;
+			foreach (name, f; fields)
+				if (isA!ButtonField(f))
 				{
-					auto widget = f.widget;
-					if (widget !is null && typeid(widget) == typeid(HiddenInputFieldWidget))
-						res[name] = f;
+					assert(f !is null);
+					res[name] = cast(Field) f; // hmmm...
 				}
 			return res;
 		}
-		Field[string] buttonFields ()
+		const(Field)[string] visibleFields () @trusted const
 		{
-			Field[string] res = null;
-			if (res is null)
-				foreach (name, f; fieldsByName)
-					if (typeid(f) == typeid(ButtonField))
-						res[name] = f;
+			Field[string] res;
+			foreach (name, f; activeFields)
+			{
+				auto widget = f.widget;
+				if (widget !is null && !isA!HiddenInputFieldWidget(widget) && !isA!ButtonFieldWidget(widget))
+					res[name] = cast(Field) f; // hmmm...
+			}
 			return res;
 		}
 }

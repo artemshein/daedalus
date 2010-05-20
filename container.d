@@ -2,19 +2,28 @@ module container;
 
 import fields;
 
+string fieldGetterAndSetter (FieldClass, string name) ()
+{
+	return FieldClass.stringof ~ " " ~ name ~ " () { return cast("
+		~ FieldClass.stringof ~ ") rwFields[\"" ~ name ~ "\"]; } auto "
+		~ name ~ " (" ~ FieldClass.stringof ~ " f) { rwFields[\"" ~ name ~ "\"] = f; return this; }";
+}
+
 abstract class Container
 {
 	protected:
-	public:
-		string[] errors, msgs;
 		Field[string] fieldsByName;
 		
-		Container addField (in string name, Field f)
+	public:
+		string[] errors, msgs;
+		
+		this () @safe
+		{}
+		ref Field[string] rwFields () @safe @property
 		{
-			fieldsByName[name] = f;
-			return this;
+			return fieldsByName;
 		}
-		Field[string] fields ()
+		const(Field[string]) fields () @safe @property pure const
 		{
 			return fieldsByName;
 		}
