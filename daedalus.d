@@ -17,7 +17,7 @@ class Daedalus
 		Templater tpl;
 		Version ver;
 		
-		this (Variant[string] params)
+		this (Variant[string] params) @safe
 		{
 			ver = new StatusVersion("1d.2.2");
 			wsApi = new Cgi(params["tmpDir"].get!string);

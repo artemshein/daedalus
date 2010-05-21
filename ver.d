@@ -11,7 +11,7 @@ import std.conv, std.string;
 
 abstract class Version
 {
-	abstract string toString ();
+	abstract string toString () @safe pure const;
 }
 
 class StatusVersion: Version
@@ -33,7 +33,7 @@ class StatusVersion: Version
 			assert(dateRevOrBuild.length <= 6);
 		}
 		
-		this (string ver)
+		this (string ver) @safe
 		in
 		{
 			assert(ver.length);
@@ -71,8 +71,10 @@ class StatusVersion: Version
 			dateRevOrBuild = arr[2];
 		}
 		
-		string toString ()
+		string toString () @safe pure const
 		{
-			return to!string(major) ~ majorStatus ~ "." ~ to!string(minor) ~ minorStatus ~ "." ~ to!string(dateRevOrBuild);
+			return to!string(major) ~ majorStatus ~ "."
+				~ to!string(minor) ~ minorStatus ~ "."
+				~ to!string(dateRevOrBuild);
 		}
 }

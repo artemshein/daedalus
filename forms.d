@@ -1,3 +1,10 @@
+/**
+ * Forms
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module forms;
 
 import std.stdio;

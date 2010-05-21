@@ -22,7 +22,7 @@ version(unittest)
 
 class MysqlError: DbError
 {
-	this (string s)
+	this (string s) @safe
 	{
 		super(s);
 	}

@@ -1,6 +1,13 @@
+/**
+ * Func module
+ *
+ * Copyright: $(WEB aisys.ru, Aisys) 2010.
+ * License: see LICENSE file.
+ * Authors: Artyom Shein.
+ */
 module func;
 
-string passArguments (string func)
+string passArguments (string func) @safe pure
 {
 	return "switch (_arguments.length)
 	{
