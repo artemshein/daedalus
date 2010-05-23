@@ -594,9 +594,9 @@ class UrlConf
 		{
 			.writefln("environment is 0x%x", &environment);
 			if (typeid(FuncHandler) == typeid(handler))
-				handler.get!(FuncHandler)(this, environment);
+				handler.get!FuncHandler()(this, environment);
 			else if (typeid(DlgHandler) == typeid(handler))
-				handler.get!(DlgHandler)(this, environment);
+				handler.get!DlgHandler()(this, environment);
 			else
 				throw new Exception("not implemented for activate");
 			return true;

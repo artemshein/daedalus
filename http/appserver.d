@@ -34,7 +34,7 @@ class Connection: WsApi
 			socket.shutdown(SocketShutdown.BOTH);
 			socket.close;
 		}
-		bool opCall () @safe
+		bool opCall () @trusted
 		{
 			string data;
 			data.length = 4096;
@@ -86,7 +86,7 @@ class Connection: WsApi
 			.writeln("Dispatching client request");
 			return false; //!!! for now
 		}
-		WsApi sendHeaders () @safe
+		WsApi sendHeaders () @trusted
 		{
 			if (headersSent)
 				return this;
@@ -103,7 +103,7 @@ class Connection: WsApi
 			dataToSend = headers ~ dataToSend;
 			return this;
 		}
-		WsApi flush () @safe
+		WsApi flush () @trusted
 		{
 			WsApi.flush;
 			if (dataToSend.length)
@@ -122,7 +122,7 @@ class ConnectionFiber: Fiber
 		void function (WsApi) fAction;
 		void delegate (WsApi) dAction;
 		
-		void run () @safe
+		void run () @trusted
 		{
 			scope(exit) delete conn;
 			try
@@ -146,7 +146,7 @@ class ConnectionFiber: Fiber
 		}
 		
 	public:
-		this (Connection conn, void function (WsApi) app) @safe
+		this (Connection conn, void function (WsApi) app) @trusted
 		in
 		{
 			assert(app !is null);
@@ -157,7 +157,7 @@ class ConnectionFiber: Fiber
 			fAction = app;
 			super(&run);
 		}
-		this (Connection conn, void delegate (WsApi) app) @safe
+		this (Connection conn, void delegate (WsApi) app) @trusted
 		in
 		{
 			assert(app !is null);
@@ -181,7 +181,7 @@ class AppServer
 		FuncHandler fAction;
 		DlgHandler dAction;
 		
-		this (InternetAddress addr, string tmpDir) @safe
+		this (InternetAddress addr, string tmpDir) @trusted
 		{
 			debug writeln("Starting AppServer");
 			this.addr = addr;

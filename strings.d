@@ -1,6 +1,6 @@
 module strings;
 
-import std.regex;
+import std.string, std.regex;
 
 string quoteEscape (string s) @trusted
 {
@@ -16,7 +16,7 @@ string interpolate (string s, in string[string] v) @trusted
 	return replace!(replacer)(s, regex("%[(]([a-zA-Z]+)[)]", "g"));
 }
 
-string split (string s, string[] dels ...) @safe pure
+string[] splitBy (string s, string[] dels ...) @trusted
 {
 	string[] res;
 	auto tail = s;

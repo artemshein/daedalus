@@ -354,26 +354,26 @@ struct st_mysql_res
 alias st_mysql_res MYSQL_RES;
 
 extern(C):
-	int mysql_server_init(int argc, char **argv, char **groups);
-	void mysql_server_end();
-	MYSQL* mysql_init(MYSQL*);
-	void mysql_close(MYSQL*);
+	int mysql_server_init(int argc, char **argv, char **groups) @trusted;
+	void mysql_server_end() @trusted;
+	MYSQL* mysql_init(MYSQL*) @trusted;
+	void mysql_close(MYSQL*) @trusted;
 	MYSQL* mysql_real_connect(MYSQL *mysql, const(char) *host,
 		const(char) *user, const(char) *passwd, const(char) *db, uint port,
-		const(char) *unix_socket, uint clientflag);
-	int mysql_query(MYSQL *mysql, const(char) *q);
-	uint mysql_errno(MYSQL *mysql);
-	const(char)* mysql_error(MYSQL *mysql);
-	int mysql_select_db(MYSQL *mysql, const(char) *db);
-	MYSQL_RES* mysql_store_result(MYSQL *mysql);
-	MYSQL_ROW mysql_fetch_row(MYSQL_RES *result);
-	void mysql_free_result(MYSQL_RES *result);
-	my_ulonglong mysql_affected_rows(MYSQL *mysql);
-	uint mysql_num_fields(MYSQL_RES *res);
-	uint* mysql_fetch_lengths(MYSQL_RES *result);
-	MYSQL_FIELD* mysql_fetch_field(MYSQL_RES *result);
-	my_ulonglong mysql_num_rows(MYSQL_RES *res);
-	uint mysql_real_escape_string(MYSQL *mysql,
-		char *to, const(char) *from, uint length);
-	my_ulonglong mysql_insert_id(MYSQL *mysql);
+		const(char) *unix_socket, uint clientflag) @trusted;
+	int mysql_query(MYSQL *mysql, const(char) *q) @trusted;
+	uint mysql_errno(const(MYSQL) *mysql) @trusted;
+	const(char)* mysql_error(const(MYSQL) *mysql) @trusted;
+	int mysql_select_db(MYSQL *mysql, const(char) *db) @trusted;
+	MYSQL_RES* mysql_store_result(MYSQL *mysql) @trusted;
+	MYSQL_ROW mysql_fetch_row(MYSQL_RES *result) @trusted;
+	void mysql_free_result(MYSQL_RES *result) @trusted;
+	my_ulonglong mysql_affected_rows(const(MYSQL) *mysql) @trusted;
+	uint mysql_num_fields(MYSQL_RES *res) @trusted;
+	uint* mysql_fetch_lengths(MYSQL_RES *result) @trusted;
+	MYSQL_FIELD* mysql_fetch_field(MYSQL_RES *result) @trusted;
+	my_ulonglong mysql_num_rows(MYSQL_RES *res) @trusted;
+	uint mysql_real_escape_string(const(MYSQL) *mysql,
+		char *to, const(char) *from, uint length) @trusted;
+	my_ulonglong mysql_insert_id(const(MYSQL) *mysql) @trusted;
 

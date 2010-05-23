@@ -7,7 +7,7 @@
  */
 module db.mysql.driver;
 
-import db.driver, db.mysql.libmysqlclient, fixes;
+import db.driver, db.db, db.mysql.libmysqlclient, fixes;
 import std.string, std.conv, std.variant, core.stdc.string;
 
 version(unittest)
@@ -28,14 +28,46 @@ class MysqlError: DbError
 	}
 }
 
-class MysqlDriver : Driver
+class MysqlSelect: Select
+{
+	public:
+}
+
+class MysqlSelectRow: SelectRow
+{
+}
+
+class MysqlSelectCell: SelectCell
+{
+}
+
+class MysqlInsert: Insert
+{
+	public:
+		this (SqlDriver db, string expr, string[] fieldsNames ...) @safe
+		{
+			this.db = db;
+			this.fieldsExpr = expr;
+			this.fieldsNames = fieldsNames;
+		}
+}
+
+class MysqlInsertRow: InsertRow
+{
+}
+
+class MysqlCreateTable: CreateTable
+{
+}
+
+class MysqlDriver: SqlDriver
 {
 	protected:
 		MYSQL mysql;
 		
 		static
 		{
-			Variant fldVal (MYSQL_FIELD* fldInfo, const(char)* val)
+			Variant fldVal (MYSQL_FIELD* fldInfo, const(char)* val) @trusted
 			{
 				Variant res;
 				if (val is null)
@@ -70,7 +102,7 @@ class MysqlDriver : Driver
 		}
 		
 	public:
-		this (string host = null, string user = null, string passwd = null, string db = null, uint port = 3306)
+		this (string host = null, string user = null, string passwd = null, string db = null, uint port = 3306) @trusted
 		{
 			super(host, user, passwd, db, port);
 			mysql_init(&mysql);
@@ -81,27 +113,27 @@ class MysqlDriver : Driver
 		{
 			mysql_close(&mysql);
 		}
-		bool query (string q)
+		bool query (string q) @trusted
 		{
 			return 0 == mysql_query(&mysql, toStringz(q));
 		}
-		uint errorNum ()
+		uint errorNum () @safe const
 		{
 			return mysql_errno(&mysql);
 		}
-		string errorMsg ()
+		string errorMsg () @trusted const
 		{
 			return to!string(mysql_error(&mysql));
 		}
-		ulong rowsAffected ()
+		ulong rowsAffected () @safe const
 		{
 			return mysql_affected_rows(&mysql);
 		}
-		bool selectDb (string db)
+		bool selectDb (string db) @trusted
 		{
 			return 0 == mysql_select_db(&mysql, toStringz(db));
 		}
-		VariantProxy[string] selectRow (string q)
+		VariantProxy[string] fetchRow (string q) @trusted
 		{
 			if (!query(q))
 				throw new MysqlError(errorMsg);
@@ -115,12 +147,12 @@ class MysqlDriver : Driver
 			for (auto i = 0; i < fldsCnt; ++i)
 			{
 				MYSQL_FIELD* fldInfo = mysql_fetch_field(res);
-				v[to!string(fldInfo.name)] = *new VariantProxy(fldVal(fldInfo, row[i]));
+				v[to!string(fldInfo.name)] = new VariantProxy(fldVal(fldInfo, row[i]));
 			}
 			mysql_free_result(res);
 			return v;
 		}
-		VariantProxy[string][] selectAll (string q)
+		VariantProxy[string][] fetchAll (string q) @trusted
 		{
 			if (!query(q))
 				throw new MysqlError(errorMsg);
@@ -145,12 +177,12 @@ class MysqlDriver : Driver
 			{
 				MYSQL_ROW row = mysql_fetch_row(res);
 				for (auto i = 0; i < fldsCnt; ++i)
-					v[r][fldsNames[i]] = *new VariantProxy(fldVal(fldsInfo[i], row[i]));
+					v[r][fldsNames[i]] = new VariantProxy(fldVal(fldsInfo[i], row[i]));
 			}
 			mysql_free_result(res);
 			return v;
 		}
-		Variant selectCell (string q)
+		Variant fetchCell (string q) @safe
 		{
 			if (!query(q))
 				throw new MysqlError(errorMsg);
@@ -165,7 +197,7 @@ class MysqlDriver : Driver
 			mysql_free_result(res);
 			return v;
 		}
-		string escape (string s)
+		string escape (string s) @trusted const
 		{	// dumb & slow function, i know
 			auto sz = toStringz(s);
 			auto len = strlen(sz);
@@ -175,14 +207,37 @@ class MysqlDriver : Driver
 			delete resz;
 			return res;
 		}
-		ulong insertId ()
+		ulong insertId () @safe const
 		{
 			return mysql_insert_id(&mysql);
+		}
+		MysqlSelect select (string[] fields ...) @safe
+		{
+			return new MysqlSelect(this, fields);
+		}
+		MysqlSelectRow selectRow (string expr, ...) @safe
+		{
+			return new MysqlSelectRow(this, expr, packArgs(_arguments, _argptr));
+		}
+		MysqlSelectCell selectCell () @safe
+		{
+			return new MysqlSelectCell(this);
+		}
+		MysqlInsert insert (string expr, ...) @safe
+		{
+			return new MysqlInsert(expr, packArgs(_arguments, _argptr));
+		}
+		MysqlInsertRow insertRow () @safe
+		{
+			return new MysqlInsertRow(this);
+		}
+		MysqlCreateTable createTable (string table) @safe
+		{
+			return new MysqlCreateTable(this, table);
 		}
 		
 	unittest
 	{
-		scope t = new Test!MysqlDriver;
 		auto m = new MysqlDriver(MYSQL_UNITTEST_HOST, MYSQL_UNITTEST_USER, MYSQL_UNITTEST_PASSWORD, MYSQL_UNITTEST_DB, MYSQL_UNITTEST_PORT);
 		m.query("DROP TABLE `t`");
 		assert(m.query("CREATE TABLE `t` (`id` INT)"));
