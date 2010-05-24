@@ -7,7 +7,7 @@
  */
 module db.driver;
 
-import std.variant, std.regex, std.stdarg, std.conv;
+import std.variant, std.regex, std.stdarg, std.conv, std.typetuple;
 import db.db, fixes;
 
 class DbError : Error
@@ -51,7 +51,7 @@ abstract class SqlDriver
 		}
 		
 		abstract Select select (string[] fields ...) @safe;
-		abstract SelectRow selectRow (string expr, ...) @safe;
+		abstract SelectRow selectRow (string[] fields ...) @safe;
 		abstract SelectCell selectCell () @safe;
 		abstract Insert insert (string expr, ...) @safe;
 		abstract InsertRow insertRow () @safe;
@@ -247,4 +247,10 @@ abstract class SqlDriver
 			Variant fetchCell (string q) @safe;
 			string escape (string s) @safe const;
 			ulong insertId () @safe const;
+			string constructFields (in string[string] fields, in string[string] tables) @safe const;
+			string constructFrom (in string[string] from) @safe const;
+			string constructJoins (in BaseSelect.Join[][string] joins) @safe const;
+			string constructWhere (in Expr[] where, in Expr[] orWhere) @safe const;
+			string constructOrder (in string[] orders) @safe const;
+			string constructLimit (in TypeTuple!(uint, uint) limitCondition) @safe const;
 }

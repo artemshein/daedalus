@@ -19,7 +19,7 @@ class Daedalus
 		
 		this (Variant[string] params) @safe
 		{
-			ver = new StatusVersion("1d.2.2");
+			ver = new StatusVersion("1d.3");
 			wsApi = new Cgi(params["tmpDir"].get!string);
 			if ("tplsDirs" in params)
 			{

@@ -7,8 +7,8 @@
  */
 module db.mysql.driver;
 
+import std.string, std.conv, std.variant, core.stdc.string, std.typetuple;
 import db.driver, db.db, db.mysql.libmysqlclient, fixes;
-import std.string, std.conv, std.variant, core.stdc.string;
 
 version(unittest)
 {
@@ -31,14 +31,60 @@ class MysqlError: DbError
 class MysqlSelect: Select
 {
 	public:
+		this (SqlDriver db, string[] fields)
+		{
+			super(db, fields);
+		}
+		this (SqlDriver db, string[] fields ...)
+		{
+			super(db, fields);
+		}
+		string asSql () @safe const
+		{
+			return "SELECT " ~ db.constructFields(fields_, tables)
+				~ db.constructFrom(tables) ~ db.constructJoins(joins)
+				~ db.constructWhere(whereConditions, orWhereConditions)
+				~ db.constructOrder(orderConditions)
+				~ db.constructLimit(limitCondition) ~ ";";
+		}
 }
 
 class MysqlSelectRow: SelectRow
 {
+	public:
+		this (SqlDriver db, string[] fields)
+		{
+			super(db, fields);
+		}
+		this (SqlDriver db, string[] fields ...)
+		{
+			super(db, fields);
+		}
+		string asSql () @safe const
+		{
+			return "SELECT " ~ db.constructFields(fields_, tables)
+				~ db.constructFrom(tables) ~ db.constructJoins(joins)
+				~ db.constructWhere(whereConditions, orWhereConditions)
+				~ db.constructOrder(orderConditions)
+				~ db.constructLimit(limitCondition) ~ ";";
+		}
 }
 
 class MysqlSelectCell: SelectCell
 {
+	public:
+		this (SqlDriver db, string field)
+		{
+			super(db, field);
+		}
+		string asSql () @safe const
+		{
+			return "SELECT " ~ db.constructFields(fields_, tables)
+				~ db.constructFrom(tables) ~ db.constructJoins(joins)
+				~ db.constructWhere(whereConditions, orWhereConditions)
+				~ db.constructOrder(orderConditions)
+				~ db.constructLimit(limitCondition) ~ ";";
+		}
 }
 
 class MysqlInsert: Insert
@@ -54,10 +100,21 @@ class MysqlInsert: Insert
 
 class MysqlInsertRow: InsertRow
 {
+	public:
+		this (SqlDriver db) @safe
+		{
+			this.db = db;
+		}
 }
 
 class MysqlCreateTable: CreateTable
 {
+	public:
+		this (SqlDriver db, string table) @safe
+		{
+			this.db = db;
+			this.table = table;
+		}
 }
 
 class MysqlDriver: SqlDriver
@@ -215,9 +272,9 @@ class MysqlDriver: SqlDriver
 		{
 			return new MysqlSelect(this, fields);
 		}
-		MysqlSelectRow selectRow (string expr, ...) @safe
+		MysqlSelectRow selectRow (string fields ...) @safe
 		{
-			return new MysqlSelectRow(this, expr, packArgs(_arguments, _argptr));
+			return new MysqlSelectRow(this, fields);
 		}
 		MysqlSelectCell selectCell () @safe
 		{
@@ -234,6 +291,84 @@ class MysqlDriver: SqlDriver
 		MysqlCreateTable createTable (string table) @safe
 		{
 			return new MysqlCreateTable(this, table);
+		}
+		string constructFields (in string[string] fields, in string[string] tables) @safe const
+		{
+			string[] res;
+			foreach (k, v; fields)
+			{
+				if (k != v)
+					res ~= processPlaceholder("?#", v) ~ " AS " ~ processPlaceholder("?#", k);
+				else
+					if ("*" == v)
+						res ~= v;
+					else
+						res ~= processPlaceholder("?#", v);
+			}
+			string str = res.join(", ");
+			if (!str.length || "*" == res)
+				return processPlaceholder("?#", tables.values[0]) ~ ".*";
+			return str;
+		}
+		string constructFrom (in string[string] from) @safe const
+		{
+			string[string] res;
+			foreach (k, v; from)
+				if (k != v)
+					res ~= processPlaceholder("?#", v) ~ " AS "
+						~ processPlaceholder("?#", k);
+				else
+					res ~= processPlaceholder("?#", v);
+			return " FROM " ~ res.join(", ");
+		}
+		string constructJoins (in BaseSelect.Join[][string] joins) @safe const
+		{
+			string[] res;
+			foreach (v; joins["inner"])
+				if (v.tableAlias.length)
+					res ~= processPlaceholders("JOIN ?# AS ?# ON ", v.table, v.tableAlias)
+						~ processPlaceholders(v.condition, v.values);
+				else
+					res ~= processPlaceholders("JOIN ?# ON ", v.table)
+						~ processPlaceholders(v.condition, v.values);
+			auto str = res.join(" ");
+			return str.length? (" " ~ str) : "";
+		}
+		string constructWhere (in Expr[] where, in Expr[] orWhere) @safe const
+		{
+			string[] w, ow;
+			foreach (v; where)
+				w ~= processPlaceholders(v.expr, v.values);
+			foreach (v; orWhere)
+				ow ~= processPlaceholders(v.expr, v.values);
+			auto res = w.join(") AND (");
+			if (!res.length)
+				res = " WHERE (" ~ res ~ ")";
+			auto res2 = ow.join(") OR (");
+			if (res2.length)
+				res2 = res.length? (" OR (" ~ res2 ~ ")") : (" WHERE (" ~ res2 ~ ")");
+			return res ~ res2;
+		}
+		string constructOrder (in string[] orders) @safe const
+		{
+			string[] res;
+			foreach (order; orders)
+				if ("*" == order)
+					res ~= "RAND()";
+				else if (order.startsWith("-"))
+					res ~= processPlaceholder("?#", order[1 .. $]) ~ " DESC";
+				else
+					res ~= processPlaceholder("?#", order) ~ " ASC";
+			auto str = res.join(", ");
+			return str.length? (" ORDER BY " ~ str) : "";
+		}
+		string constructLimit (in TypeTuple!(uint, uint) limitCondition) @safe const
+		{
+			return limit[1]
+				? (limit[0]
+					? (" LIMIT " ~ to!string(limit[1] - limit[0]) ~ " OFFSET " ~ limit[0])
+					: (" LIMIT " ~ limit[1]))
+				: (limit[0]? (" LIMIT " ~ to!string(limit[0])) : "");
 		}
 		
 	unittest

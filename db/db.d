@@ -1,6 +1,6 @@
 module db.db;
 
-import std.variant, std.string;
+import std.variant, std.string, std.typetuple;
 import config, db.driver, fixes, strings;
 
 version(MySQL) import db.mysql.driver;
@@ -81,12 +81,6 @@ abstract class Insert
 	public:
 		abstract string asSql () @safe const;
 		
-		this (SqlDriver db, string expr, string[] fieldsNames ...) @safe
-		{
-			this.db = db;
-			this.fieldsExpr = expr;
-			this.fieldsNames = fieldsNames;
-		}
 		typeof(this) into (string table) @safe
 		{
 			this.table = table;
@@ -103,7 +97,7 @@ abstract class Insert
 		}
 }
 
-class InsertRow
+abstract class InsertRow
 {
 	protected:
 		SqlDriver db;
@@ -113,10 +107,6 @@ class InsertRow
 	public:
 		abstract string asSql () @safe const;
 		
-		this (SqlDriver db) @safe
-		{
-			this.db = db;
-		}
 		typeof(this) into (string table) @safe
 		{
 			this.table = table;
@@ -137,26 +127,43 @@ abstract class BaseSelect
 {
 	protected:
 		SqlDriver db;
-		string[] fields_, tables;
+		string[string] fields_, tables;
+		Join[][string] joins;
+		Expr[] whereConditions, orWhereConditions;
+		string[] orderConditions;
+		TypeTuple!(uint, uint) limitCondition;
 		
 	public:
+		static struct Join
+		{
+			string table;
+			string tableAlias;
+			string condition;
+			Variant[] values;
+		}
+		
 		abstract string asSql () @safe const;
 		
-		this (SqlDriver db, string[] fields ...)
+		this (SqlDriver db, string[] fields)
 		{
 			this.db = db;
 			this.fields = fields;
+			joins["inner"] = (Join[]).init;
+		}
+		this (SqlDriver db, string[] fields ...)
+		{
+			this(db, fields);
 		}
 		typeof(this) from (string[] tables ...) @safe
 		{
 			foreach (table; tables)
-				this.tables ~= table;
+				this.tables[table] ~= table;
 			return this;
 		}
 		typeof(this) from (string[string] tables) @safe
 		{
-			foreach (tAlias, table; tables)
-				this.tablesWithAliases[tAlias] = table;
+			foreach (name, table; tables)
+				this.tables[name] = table;
 			return this;
 		}
 		typeof(this) fields (string[] fields ...) @safe
@@ -172,12 +179,12 @@ abstract class BaseSelect
 		}
 		typeof(this) where (string expr, ...) @safe
 		{
-			whereConditions ~= WhereExpr(expr, packArgs(_arguments, _argptr));
+			whereConditions ~= Expr(expr, packArgs(_arguments, _argptr));
 			return this;
 		}
 		typeof(this) orWhere (string expr, ...) @safe
 		{
-			orWhereConditions ~= WhereExpr(expr, packArgs(_arguments, _argptr));
+			orWhereConditions ~= Expr(expr, packArgs(_arguments, _argptr));
 			return this;
 		}
 		typeof(this) order (string[] orders ...) @safe
@@ -197,59 +204,82 @@ abstract class BaseSelect
 		{
 			return limit((page - 1) * onPage, page * onPage);
 		}
+		/+typeof(this) joinInternalProcess (string joinType, string[string] joinTable, string[] condition, string[string] fields)
+		{
+			auto tbl = joinTable.values[0];
+			// Condition
+			auto cndStr = db.processPlaceholders(condition[0], condition[1..$]);
+			bool founded;
+			foreach (v; tables)
+				if (tbl == v)
+				{
+					founded = true;
+					break;
+				}
+			if (!founded)
+				foreach (v; joins[joinType])
+					if (v.values[0] == tbl)
+					{
+						founded = true;
+						
+						v[2] = "("..v[2].." OR "..condition..")"
+						break
+					}
+			if not founded then
+				table.insert(joinType, {joinTable, condition})
+			end
+		}+/
+		typeof(this) join (string[string] table, string condition, ...) @safe
+		{
+			return joinInner(table, condition, packArgs(_argument, _argptr));
+		}
+		typeof(this) joinInner (string[string] table, string condition, ...) @safe
+		{
+			return joinInternalProcess(joins["inner"], table, condition, packArgs(_arguments, _argptr));
+		}
+		typeof(this) joinOuter (string[string] table, string condition, ...) @safe
+		{
+			return joinInternalProcess(joins["outer"], table, condition, packArgs(_arguments, _argptr));
+		}
+		typeof(this) joinLeft (string[string] table, string condition, ...) @safe
+		{
+			return joinInternalProcess(joins["left"], table, condition, packArgs(_arguments, _argptr));
+		}
+		typeof(this) joinRight (string[string] table, string condition, ...) @safe
+		{
+			return joinInternalProcess(joins["right"], table, condition, packArgs(_arguments, _argptr));
+		}
+		typeof(this) joinFull (string[string] table, string condition, ...) @safe
+		{
+			return joinInternalProcess(joins["full"], table, condition, packArgs(_arguments, _argptr));
+		}
+		typeof(this) joinCross (string[string] table, string condition, ...) @safe
+		{
+			return joinInternalProcess(joins["cross"], table, condition, packArgs(_arguments, _argptr));
+		}
+		typeof(this) joinNatural (string[string] table, string condition, ...) @safe
+		{
+			return joinInternalProcess(joins["natural"], table, condition, packArgs(_arguments, _argptr));
+		}
 		/+
-	_joinInternalProcess = function (self, joinType, joinTable, condition, fields)
-		local tbl = joinTable
-		if "table" == type(tbl) then
-			tbl = next(tbl)
-		end
-		-- Condition
-		if "table" == type(condition) then
-			condition = self._db:processPlaceholders(unpack(condition))
-		end
-		local founded
-		for _, v in pairs(self._tables) do
-			if v == joinTable then
-				founded = true
-				break
-			end
-		end
-		if not founded then
-			for _, v in ipairs(joinType) do
-				if v[1] == joinTable then
-					founded = true
-					v[2] = "("..v[2].." OR "..condition..")"
-					break
-				end
-			end
-		end
-		if not founded then
-			table.insert(joinType, {joinTable, condition})
-		end
-	end;
-	join = function (self, ...)
-		return self:joinInner(...)
-	end;
-	joinInner = function (self, ...)
-		self:_joinInternalProcess(self._joins.inner, ...)
-		return self
-	end;
-	joinOuter = function (self, ...) table.insert(self._joins.outer, {...}) return self end;
-	joinLeft = function (self, ...) table.insert(self._joins.left, {...}) return self end;
-	joinRight = function (self, ...) table.insert(self._joins.right, {...}) return self end;
-	joinFull = function (self, ...) table.insert(self._joins.full, {...}) return self end;
-	joinCross = function (self, ...) table.insert(self._joins.cross, {...}) return self end;
-	joinNatural = function (self, ...) table.insert(self._joins.natural, {...}) return self end;
-	joinInnerUsing = function (self, ...) table.insert(self._joinsUsing.inner, {...}) return self end;
-	joinOuterUsing = function (self, ...) table.insert(self._joinsUsing.outer, {...}) return self end;
-	joinLeftUsing = function (self, ...) table.insert(self._joinsUsing.left, {...}) return self end;
-	joinRightUsing = function (self, ...) table.insert(self._joinsUsing.right, {...}) return self end;
-	joinFullUsing = function (self, ...) table.insert(self._joinsUsing.full, {...}) return self end;+/
+		joinInnerUsing = function (self, ...) table.insert(self._joinsUsing.inner, {...}) return self end;
+		joinOuterUsing = function (self, ...) table.insert(self._joinsUsing.outer, {...}) return self end;
+		joinLeftUsing = function (self, ...) table.insert(self._joinsUsing.left, {...}) return self end;
+		joinRightUsing = function (self, ...) table.insert(self._joinsUsing.right, {...}) return self end;
+		joinFullUsing = function (self, ...) table.insert(self._joinsUsing.full, {...}) return self end;+/
 }
 
 abstract class Select: BaseSelect
 {
 	public:
+		this (SqlDriver db, string[] fields)
+		{
+			super(db, fields);
+		}
+		this (SqlDriver db, string[] fields ...)
+		{
+			super(db, fields);
+		}
 		VariantProxy[string][] opCall () @safe
 		{
 			return db.fetchAll(asSql);
@@ -259,6 +289,14 @@ abstract class Select: BaseSelect
 abstract class SelectRow: BaseSelect
 {
 	public:
+		this (SqlDriver db, string[] fields)
+		{
+			super(db, fields);
+		}
+		this (SqlDriver db, string[] fields ...)
+		{
+			super(db, fields);
+		}
 		VariantProxy[string] opCall () @safe
 		{
 			return db.fetchRow(asSql);
@@ -268,6 +306,10 @@ abstract class SelectRow: BaseSelect
 abstract class SelectCell: BaseSelect
 {
 	public:
+		this (SqlDriver db, string field)
+		{
+			super(db, fields);
+		}
 		Variant opCall () @safe
 		{
 			return db.fetchCell(asSql);
@@ -460,11 +502,6 @@ class CreateTable
 		bool opCall () @safe
 		{
 			return db.query(asSql);
-		}
-		this (SqlDriver db, string table) @safe
-		{
-			this.db = db;
-			this.table = table;
 		}
 		typeof(this) field (string name, string type, string[string] params) @safe
 		{

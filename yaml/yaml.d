@@ -3,6 +3,104 @@ module yaml.yaml;
 import core.stdc.string, std.string, std.stdio, std.conv, std.variant, std.regex;
 import yaml.libyaml, fixes;
 
+abstract class YamlElement
+{
+	public:
+}
+
+class YamlScalar: YamlElement
+{
+	public:
+		string value;
+		
+		this (string value) @safe
+		{
+			this.value = value;
+		}
+		hash_t toHash () @trusted const
+		{
+			return typeid(value).toHash;
+		}
+}
+
+class YamlSequence: YamlElement
+{
+	public:
+		bool flowMode;
+		YamlElement[] elements;
+		
+		this () @safe
+		{}
+		this (YamlElement[] elements) @safe
+		{
+			this.elements = elements;
+		}
+		typeof(this) opOpAssign (string s) (YamlElement e) @safe if ("~=" == s)
+		{
+			this.elements ~= e;
+			return this;
+		}
+		YamlElement opIndex (size_t idx) @safe
+		{
+			return elements[idx];
+		}
+		size_t length () @safe @property const
+		{
+			return elements.length;
+		}
+}
+
+class YamlMapping: YamlElement
+{
+	protected:
+		YamlElement[YamlScalar] elements;
+		
+	public:
+		bool flowStyle;
+		
+		this (YamlElement[YamlScalar] elements) @safe
+		{
+			this.elements = elements;
+		}
+}
+
+class YamlDocument
+{
+	protected:
+		uint level;
+		
+	public:
+		uint indent = 3;
+		YamlMapping root;
+		
+		string scalarAsYaml (YamlScalar scalar)
+		{
+			
+		}
+		string mappingAsYaml (YamlMapping mapping, bool forceFlow = false)
+		{
+			auto flowStyle = forceFlow || mapping.flowStyle;
+			string res = flowStyle? "{" : repeat(" ", indent * level);
+			foreach (key, el; mapping.elements)
+			{
+				res ~= scalarAsYaml(key) ~ ":";
+				auto type = typeid(el);
+				if (isA!YamlMapping(el))
+					res ~= mappingAsYaml(cast(YamlMapping) el);
+				else if (isA!YamlSequence(el))
+					res ~= sequenceAsYaml(cast(YamlSequence) el);
+				else if (isA!YamlScalar(el))
+					res ~= scalarAsYaml(cast(YamlScalar) el);
+				else
+					assert(false, "not implemented");
+			}
+		}
+		string asYaml () @safe const
+		{
+			return mappingAsYaml(root);
+		}
+}
+
 class YamlParser
 {
 	protected:
@@ -19,7 +117,7 @@ class YamlParser
 		}
 		uint errorCode ()
 		{
-			return cast(uint)parser.error;
+			return cast(uint) parser.error;
 		}
 		string errorMsg ()
 		{
@@ -44,114 +142,87 @@ class YamlParser
 			}
 			assert(false, "not implemented");
 		}
-		VariantProxy[string] parse (string s)
+		YamlScalar parseScalar (yaml_event_t* scalarEvent)
 		{
+			return new YamlScalar(scalarEvent);
+		}
+		YamlSequence parseSequence (yaml_event_t* seqEvent)
+		{
+			auto res = new YamlSequence(seqEvent);
 			yaml_event_t event;
-			VariantProxy[string] parseMap ()
+			end_parsing: while (yaml_parser_parse(&parser, &event))
 			{
-				VariantProxy[string] res;
-				Variant[] seq;
-				string mapKey;
-				bool valFlag;
-				bool seqFlag;
-				end_parsing: while (yaml_parser_parse(&parser, &event))
+				switch (event.type)
 				{
-					switch (event.type)
-					{
-						case yaml_event_type_t.YAML_NO_EVENT:
-							return res;
-						case yaml_event_type_t.YAML_STREAM_START_EVENT,
-							yaml_event_type_t.YAML_DOCUMENT_START_EVENT,
-							yaml_event_type_t.YAML_STREAM_END_EVENT,
-							yaml_event_type_t.YAML_DOCUMENT_END_EVENT:
-							//assert(false, "parse error");
-							break;
-						case yaml_event_type_t.YAML_ALIAS_EVENT:
-							assert(false, "not implemented");
-							break;
-						case yaml_event_type_t.YAML_SCALAR_EVENT:
-							writeln("SCALAR " ~ to!string(cast(char*)event.data.scalar.value));
-							if (!valFlag)
-								mapKey = to!string(cast(char*)event.data.scalar.value);
-							else
-								res[mapKey] = new VariantProxy(Variant(to!string(cast(char*)event.data.scalar.value)));
-							valFlag = !valFlag;
-							break;
-						case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
-							assert(valFlag, "parse error");
-							seqFlag = true;
-							break;
-						case yaml_event_type_t.YAML_SEQUENCE_END_EVENT:
-							writeln("/SEQUENCE");
-							assert(seqFlag, "parse error");
-							seqFlag = false;
-							break;
-						case yaml_event_type_t.YAML_MAPPING_START_EVENT:
-							writeln("MAPPING");
-							res[mapKey] = new VariantProxy(Variant(parseMap()));
-							break;
-						case yaml_event_type_t.YAML_MAPPING_END_EVENT:
-							writeln("/MAPPING");
-							return res;
-						default:
-							assert(false, "not implemented " ~ to!string(cast(uint)event.type));
-					}
+					case yaml_event_type_t.YAML_ALIAS_EVENT:
+						assert(false, "not implemented");
+						break;
+					case yaml_event_type_t.YAML_SCALAR_EVENT:
+						res ~= parseScalar(&event);
+						break;
+					case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
+						res ~= parseSequence(&event);
+						break;
+					case yaml_event_type_t.YAML_MAPPING_START_EVENT:
+						res ~= parseMapping(&event);
+						break;
+					case yaml_event_type_t.YAML_SEQUENCE_END_EVENT:
+						break end_parsing;
+					default:
+						throw new Error("parse error");
 				}
-				throw new Error(errorMsg);
 			}
+			return res;
+		}
+		YamlMapping parseMapping (yaml_event_t* mapEvent)
+		{
+			auto res = new YamlMapping(mapEvent);
+			yaml_event_t event;
+			YamlScalar key;
+			end_parsing: while (yaml_parser_parse(&parser, &event))
+			{
+				switch (event.type)
+				{
+					case yaml_event_type_t.YAML_ALIAS_EVENT:
+						assert(false, "not implemented");
+						break;
+					case yaml_event_type_t.YAML_SCALAR_EVENT:
+						if (key is null)
+							key = parseScalar(&event);
+						else
+						{
+							res[key] = parseScalar(&event);
+							key = null;
+						}
+						break;
+					case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
+						res ~= parseSequence(&event);
+						break;
+					case yaml_event_type_t.YAML_MAPPING_START_EVENT:
+						res ~= parseMapping(&event);
+						break;
+					case yaml_event_type_t.YAML_MAPPING_END_EVENT:
+						break end_parsing;
+					default:
+						throw new Error("parse error");
+				}
+			}
+			return res;
+		}
+		YamlDocument parse (string s)
+		{
 			auto sz = toStringz(s);
 			auto len = strlen(sz);
 			yaml_parser_set_input_string(&parser, cast(ubyte*)sz, len);
-			do
-			{
-				if (!yaml_parser_parse(&parser, &event))
-					assert(false, "parse error");
-			}
-			while (event.type != yaml_event_type_t.YAML_MAPPING_START_EVENT);
-			return parseMap();
+			yaml_event_t event;
+			if (!yaml_parser_parse(&parser, &event))
+				throw new Error("parse error");
+			if (event.type != yaml_event_type_t.YAML_STREAM_START_EVENT
+				&& event.type != yaml_event_type_t.YAML_DOCUMENT_START_EVENT)
+				throw new Error("parse error");
+			yaml_event_t mapEvent;
+			if (mapEvent.type != yaml_event_type_t.YAML_MAPPING_START_EVENT)
+				throw new Error("parse error");
+			return parseMap(&mapEvent);
 		}
-}
-
-string generateYaml (Variant v)
-{
-	if (typeid(string) == v.type)
-		return generateYaml(v.get!string);
-	else if (typeid(VariantProxy[string]) == v.type)
-		return generateYaml(v.get!(VariantProxy[string]));
-	else if (typeid(Variant[]) == v.type)
-	{
-		string res = "[";
-		foreach (val; v.get!(Variant[]))
-			res ~= generateYaml(val) ~ ",";
-		return res ~ "]";
-	}
-	assert(false);
-}
-
-string generateYaml (string v)
-{
-	return "\"" ~ replace(v, regex("\"", "g"), "\\\"") ~ "\"";
-}
-
-string generateYaml (VariantProxy[string] v)
-{
-	string res = "{";
-	foreach (key, val; v)
-	{
-		res ~= generateYaml(key) ~ ":";
-		if (typeid(Variant[]) == val.v.type)
-		{
-			res ~= "[";
-			foreach (v2; val.v.get!(Variant[]))
-				res ~= generateYaml(v2) ~ ",";
-			res ~= "]";
-		}
-		else if (typeid(string) == val.v.type)
-			res ~= generateYaml(val.v.get!string) ~ ",";
-		else if (typeid(VariantProxy[string]) == val.v.type)
-			res ~= generateYaml(val.v.get!(VariantProxy[string])) ~ ",";
-		else
-			assert(false);
-	}
-	return res ~ "}";
 }

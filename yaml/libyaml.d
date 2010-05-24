@@ -872,6 +872,24 @@ struct yaml_event_s
 
 alias yaml_event_s yaml_event_t;
 
+/**
+ * The prototype of a write handler.
+ *
+ * The write handler is called when the emitter needs to flush the accumulated
+ * characters to the output.  The handler should write @a size bytes of the
+ * @a buffer to the output.
+ *
+ * @param[in,out]   data        A pointer to an application data specified by
+ *                              yaml_emitter_set_output().
+ * @param[in]       buffer      The buffer with bytes to be written.
+ * @param[in]       size        The size of the buffer.
+ *
+ * @returns On success, the handler should return @c 1.  If the handler failed,
+ * the returned value should be @c 0.
+ */
+
+alias int function (void *data, ubyte *buffer, size_t size) yaml_write_handler_t;
+
 extern(C):
 
 /**
@@ -933,3 +951,30 @@ void yaml_parser_delete (yaml_parser_t* parser);
 
 int yaml_parser_parse(yaml_parser_t *parser, yaml_event_t *event);
 
+/**
+ * Create a SCALAR event.
+ *
+ * The @a style argument may be ignored by the emitter.
+ *
+ * Either the @a tag attribute or one of the @a plain_implicit and
+ * @a quoted_implicit flags must be set.
+ *
+ * @param[out]      event           An empty event object.
+ * @param[in]       anchor          The scalar anchor or @c NULL.
+ * @param[in]       tag             The scalar tag or @c NULL.
+ * @param[in]       value           The scalar value.
+ * @param[in]       length          The length of the scalar value.
+ * @param[in]       plain_implicit  If the tag may be omitted for the plain
+ *                                  style.
+ * @param[in]       quoted_implicit If the tag may be omitted for any
+ *                                  non-plain style.
+ * @param[in]       style           The scalar style.
+ *
+ * @returns @c 1 if the function succeeded, @c 0 on error.
+ */
+
+int yaml_scalar_event_initialize(yaml_event_t *event,
+        yaml_char_t *anchor, yaml_char_t *tag,
+        yaml_char_t *value, int length,
+        int plain_implicit, int quoted_implicit,
+        yaml_scalar_style_t style);
