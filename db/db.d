@@ -75,7 +75,7 @@ abstract class Insert
 	protected:
 		SqlDriver db;
 		string fieldsExpr, table;
-		string[] fieldsNames;
+		string[string] fieldsNames;
 		Variant[][] values_;
 	
 	public:
@@ -478,6 +478,15 @@ class DropTable
 class CreateTable
 {
 	protected:
+		SqlDriver db;
+		string table;
+		string[] primaryKey_;
+		string[][] unique;
+		string[string] options;
+		Constraint[] constraints;
+		Field[] fields;
+		
+	public:
 		static struct Field
 		{
 			string name;
@@ -489,14 +498,6 @@ class CreateTable
 			string name, table, field, onUpdate, onDelete;
 		}
 		
-		SqlDriver db;
-		string table;
-		string[] primaryKey_;
-		string[][] unique;
-		string[string] options;
-		Constraint[] constraints;
-		
-	public:
 		abstract string asSql () @safe const;
 		
 		bool opCall () @safe

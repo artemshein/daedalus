@@ -94,7 +94,14 @@ class MysqlInsert: Insert
 		{
 			this.db = db;
 			this.fieldsExpr = expr;
-			this.fieldsNames = fieldsNames;
+			foreach (field; fieldsNames)
+				this.fieldsNames[field] = field;
+		}
+		string asSql () @safe const
+		{
+			return "INSERT INTO " ~ db.processPlaceholder("?#", table)
+				~ " (" ~ db.constructFields(fieldsNames, [table: table]) ~ ") VALUES "
+				~ db.constructValues(fieldsExpr, values_) ~ ";";
 		}
 }
 
@@ -105,6 +112,11 @@ class MysqlInsertRow: InsertRow
 		{
 			this.db = db;
 		}
+		string asSql () @safe const
+		{
+			return "INSERT INTO " ~ db.processPlaceholder("?#", table)
+				~ db.constructSet(sets) ~ ";";
+		}
 }
 
 class MysqlCreateTable: CreateTable
@@ -114,6 +126,15 @@ class MysqlCreateTable: CreateTable
 		{
 			this.db = db;
 			this.table = table;
+		}
+		string asSql () @safe const
+		{
+			return "CREATE TABLE " ~ db.processPlaceholder("?#", table)
+				~ " (" ~ db.constructFieldsDefinition(fields)
+				~ db.constructPrimaryKey(primaryKey_)
+				~ db.constructUnique(unique)
+				~ db.constructConstraints(constraints) ~ ")"
+				~ db.constructOptions(options) ~ ";";
 		}
 }
 
@@ -276,13 +297,13 @@ class MysqlDriver: SqlDriver
 		{
 			return new MysqlSelectRow(this, fields);
 		}
-		MysqlSelectCell selectCell () @safe
+		MysqlSelectCell selectCell (string field) @safe
 		{
-			return new MysqlSelectCell(this);
+			return new MysqlSelectCell(this, field);
 		}
-		MysqlInsert insert (string expr, ...) @safe
+		MysqlInsert insert (string expr, string[] fields ...) @safe
 		{
-			return new MysqlInsert(expr, packArgs(_arguments, _argptr));
+			return new MysqlInsert(this, expr, fields);
 		}
 		MysqlInsertRow insertRow () @safe
 		{
@@ -292,7 +313,7 @@ class MysqlDriver: SqlDriver
 		{
 			return new MysqlCreateTable(this, table);
 		}
-		string constructFields (in string[string] fields, in string[string] tables) @safe const
+		string constructFields (in string[string] fields, in string[string] tables) @trusted const
 		{
 			string[] res;
 			foreach (k, v; fields)
@@ -310,7 +331,7 @@ class MysqlDriver: SqlDriver
 				return processPlaceholder("?#", tables.values[0]) ~ ".*";
 			return str;
 		}
-		string constructFrom (in string[string] from) @safe const
+		string constructFrom (in string[string] from) @trusted const
 		{
 			string[string] res;
 			foreach (k, v; from)
@@ -319,9 +340,9 @@ class MysqlDriver: SqlDriver
 						~ processPlaceholder("?#", k);
 				else
 					res ~= processPlaceholder("?#", v);
-			return " FROM " ~ res.join(", ");
+			return " FROM " ~ join(res.values, ", ");
 		}
-		string constructJoins (in BaseSelect.Join[][string] joins) @safe const
+		string constructJoins (in BaseSelect.Join[][string] joins) @trusted const
 		{
 			string[] res;
 			foreach (v; joins["inner"])
@@ -334,7 +355,7 @@ class MysqlDriver: SqlDriver
 			auto str = res.join(" ");
 			return str.length? (" " ~ str) : "";
 		}
-		string constructWhere (in Expr[] where, in Expr[] orWhere) @safe const
+		string constructWhere (in Expr[] where, in Expr[] orWhere) @trusted const
 		{
 			string[] w, ow;
 			foreach (v; where)
@@ -369,6 +390,109 @@ class MysqlDriver: SqlDriver
 					? (" LIMIT " ~ to!string(limit[1] - limit[0]) ~ " OFFSET " ~ limit[0])
 					: (" LIMIT " ~ limit[1]))
 				: (limit[0]? (" LIMIT " ~ to!string(limit[0])) : "");
+		}
+		string constructValues (in string placeholders, in Variant[][] values) @safe const
+		{
+			string[] res;
+			foreach (v; values)
+				res ~= processPlaceholders(placeholders, values);
+			return "(" ~ res.join("), (") ~ ")";
+		}
+		string constructSet (in Expr[] sets) @safe const
+		{
+			string[] exprs;
+			foreach (set; sets)
+				exprs ~= processPlaceholders(set.expr, set.values);
+			return " SET " ~ exprs.join(", ");
+		}
+		string constructFieldsDefinition (in CreateTable.Field[] fields) @safe const
+		{
+			string[] res;
+			foreach (v; fields)
+			{
+				auto fld = processPlaceholder("?#", v.name) ~ " " ~ v.type;
+				auto options = v.options;
+				if ((("primaryKey" in options) !is null) && cast(bool) options["primaryKey"])
+					fld ~= " PRIMARY KEY";
+				if ((("serial" in options) !is null) && cast(bool) options["serial"])
+					fld ~= " AUTO_INCREMENT";
+				if ((("null" in options) !is null) && cast(bool) options["null"])
+					fld ~= " NULL";
+				else
+					fld ~= " NOT NULL";
+				if ((("unique" in options) !is null) && cast(bool) options["unique"])
+					fld ~= " UNIQUE";
+				if (("default" in options) !is null)
+				{
+					auto type = typeid(options["default"]);
+					if (type == typeid(string))
+					{
+						if (options["default"].get!string() == "NULL")
+							fld ~= " DEFAULT NULL";
+						else
+							fld ~= " DEFAULT " ~ processPlaceholder("?", options["default"].get!string);
+					}	
+					else if (type == typeid(uint) || type == typeid(int))
+						fld ~= processPlaceholder("?d", options["default"]);
+					else
+						throw new Error("unsupported default option type " ~ to!string(options["default"].type), __FILE__, __LINE__);
+				}
+				res ~= fld;
+			}
+			return res.join(", ");
+		}
+		string constructPrimaryKey (in string[] primary) @safe const
+		{
+			if (!primary.length)
+				return "";
+			string[] res;
+			foreach (v; primary)
+				res ~= processPlaceholder("?#", v);
+			return ", PRIMARY KEY (" ~ res.join(", ") ~ ")";
+		}
+		string constructUnique (in string[][] unique) @safe const
+		{
+			string[] res;
+			if (!unique.length)
+				return "";
+			foreach (v; unique)
+			{
+				string[] uniq;
+				foreach (v2; v)
+					uniq ~= processPlaceholder("?#", v2);
+				res ~= ", UNIQUE (" ~ uniq.join(", ") ~ ")";
+			}
+			return res.join(",");
+		}
+		string constructConstraints (in CreateTable.Constraint[] refs) @safe const
+		{
+			string[] res;
+			if (!refs.length)
+				return "";
+			foreach (v; refs)
+			{
+				auto refStr = processPlaceholders(", CONSTRAINT FOREIGN KEY (?#) REFERENCES ?# (?#)", v.name, v.table, v.field);
+				if (v.onUpdate.length)
+					refStr ~= " ON UPDATE " ~ v.onUpdate;
+				if (v.onDelete.length)
+					refStr ~= " ON DELETE " ~ v.onDelete;
+				res ~= refStr;
+			}
+			return res.join("");
+		}
+		string constructOptions (in string[string] options) @safe const
+		{
+			string[] res;
+			if (!options.length)
+				return "";
+			foreach (k, v; options)
+				if ("charset" == k)
+					res ~= "CHARACTER SET " ~ v;
+				else if ("engine" == k)
+					res ~= "ENGINE = " ~ v;
+				else
+					throw new Error("unsupported option " ~ k, __FILE__, __LINE__);
+			return " " ~ res.join(" ");
 		}
 		
 	unittest

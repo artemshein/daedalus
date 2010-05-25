@@ -247,10 +247,17 @@ abstract class SqlDriver
 			Variant fetchCell (string q) @safe;
 			string escape (string s) @safe const;
 			ulong insertId () @safe const;
-			string constructFields (in string[string] fields, in string[string] tables) @safe const;
-			string constructFrom (in string[string] from) @safe const;
-			string constructJoins (in BaseSelect.Join[][string] joins) @safe const;
-			string constructWhere (in Expr[] where, in Expr[] orWhere) @safe const;
+			string constructFields (in string[string] fields, in string[string] tables) @trusted const;
+			string constructFrom (in string[string] from) @trusted const;
+			string constructJoins (in BaseSelect.Join[][string] joins) @trusted const;
+			string constructWhere (in Expr[] where, in Expr[] orWhere) @trusted const;
 			string constructOrder (in string[] orders) @safe const;
 			string constructLimit (in TypeTuple!(uint, uint) limitCondition) @safe const;
+			string constructValues (in string placeholders, in Variant[][] values) @safe const;
+			string constructSet (in Expr[] sets) @safe const;
+			string constructFieldsDefinition (in CreateTable.Field[] fields) @safe const;
+			string constructPrimaryKey (in string[] primary) @safe const;
+			string constructUnique (in string[][] unique) @safe const;
+			string constructConstraints (in CreateTable.Constraint[] refs) @safe const;
+			string constructOptions (in string[string] options) @safe const;
 }
