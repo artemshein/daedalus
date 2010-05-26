@@ -16,17 +16,17 @@ public:
 			return;
 		switch (event.type)
 		{
-			case yaml_event_type_t.YAML_SCALAR_EVENT:
-				anchor = to!string(cast(char*) event.data.scalar.anchor);
-				break;
-			case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
-				anchor = to!string(cast(char*) event.data.sequence_start.anchor);
-				break;
-			case yaml_event_type_t.YAML_MAPPING_START_EVENT:
-				anchor = to!string(cast(char*) event.data.mapping_start.anchor);
-				break;
-			default:
-				throw new Error("not implemented", __FILE__, __LINE__);
+		case yaml_event_type_t.YAML_SCALAR_EVENT:
+			anchor = to!string(cast(char*) event.data.scalar.anchor);
+			break;
+		case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
+			anchor = to!string(cast(char*) event.data.sequence_start.anchor);
+			break;
+		case yaml_event_type_t.YAML_MAPPING_START_EVENT:
+			anchor = to!string(cast(char*) event.data.mapping_start.anchor);
+			break;
+		default:
+			throw new Error("not implemented", __FILE__, __LINE__);
 		}
 	}
 }
@@ -287,22 +287,22 @@ public:
 	{
 		switch (errorCode)
 		{
-			case yaml_error_type_t.YAML_NO_ERROR:
-				return "No error is produced.";
-			case yaml_error_type_t.YAML_MEMORY_ERROR:
-				return "Cannot allocate or reallocate a block of memory.";
-			case yaml_error_type_t.YAML_READER_ERROR:
-				return "Cannot read or decode the input stream.";
-			case yaml_error_type_t.YAML_SCANNER_ERROR:
-				return "Cannot scan the input stream.";
-			case yaml_error_type_t.YAML_PARSER_ERROR:
-				return "Cannot parse the input stream.";
-			case yaml_error_type_t.YAML_COMPOSER_ERROR:
-				return "Cannot compose a YAML document.";
-			case yaml_error_type_t.YAML_WRITER_ERROR:
-				return "Cannot write to the output stream.";
-			case yaml_error_type_t.YAML_EMITTER_ERROR:
-				return "Cannot emit a YAML stream.";
+		case yaml_error_type_t.YAML_NO_ERROR:
+			return "No error is produced.";
+		case yaml_error_type_t.YAML_MEMORY_ERROR:
+			return "Cannot allocate or reallocate a block of memory.";
+		case yaml_error_type_t.YAML_READER_ERROR:
+			return "Cannot read or decode the input stream.";
+		case yaml_error_type_t.YAML_SCANNER_ERROR:
+			return "Cannot scan the input stream.";
+		case yaml_error_type_t.YAML_PARSER_ERROR:
+			return "Cannot parse the input stream.";
+		case yaml_error_type_t.YAML_COMPOSER_ERROR:
+			return "Cannot compose a YAML document.";
+		case yaml_error_type_t.YAML_WRITER_ERROR:
+			return "Cannot write to the output stream.";
+		case yaml_error_type_t.YAML_EMITTER_ERROR:
+			return "Cannot emit a YAML stream.";
 		}
 		throw new Error("invalid error code " ~ to!string(errorCode), __FILE__, __LINE__);
 	}
@@ -326,22 +326,22 @@ public:
 		{
 			switch (event.type)
 			{
-				case yaml_event_type_t.YAML_ALIAS_EVENT:
-					res ~= aliases[to!string(cast(char*) event.data.alias_.anchor)];
-					break;
-				case yaml_event_type_t.YAML_SCALAR_EVENT:
-					res ~= parseScalar(&event);
-					break;
-				case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
-					res ~= parseSequence(&event);
-					break;
-				case yaml_event_type_t.YAML_MAPPING_START_EVENT:
-					res ~= parseMapping(&event);
-					break;
-				case yaml_event_type_t.YAML_SEQUENCE_END_EVENT:
-					break end_parsing;
-				default:
-					throw new Error("invalid event type " ~ to!string(event.type), __FILE__, __LINE__);
+			case yaml_event_type_t.YAML_ALIAS_EVENT:
+				res ~= aliases[to!string(cast(char*) event.data.alias_.anchor)];
+				break;
+			case yaml_event_type_t.YAML_SCALAR_EVENT:
+				res ~= parseScalar(&event);
+				break;
+			case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
+				res ~= parseSequence(&event);
+				break;
+			case yaml_event_type_t.YAML_MAPPING_START_EVENT:
+				res ~= parseMapping(&event);
+				break;
+			case yaml_event_type_t.YAML_SEQUENCE_END_EVENT:
+				break end_parsing;
+			default:
+				throw new Error("invalid event type " ~ to!string(event.type), __FILE__, __LINE__);
 			}
 		}
 		if (!parseRes)
@@ -361,51 +361,51 @@ public:
 		{
 			switch (event.type)
 			{
-				case yaml_event_type_t.YAML_ALIAS_EVENT:
-					if (key is null)
-						throw new Error("parse error", __FILE__, __LINE__);
-					else
-					{
-						res[key] = aliases[to!string(cast(char*) event.data.alias_.anchor)];
-						key = null;
-					}
-					break;
-				case yaml_event_type_t.YAML_SCALAR_EVENT:
-					if (key is null)
-						key = parseScalar(&event);
-					else
-					{
-						res[key] = parseScalar(&event);
-						key = null;
-					}
-					break;
-				case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
-					if (key is null)
-						throw new Error("parse error", __FILE__, __LINE__);
-					else
-					{
-						res[key] = parseSequence(&event);
-						key = null;
-					}
-					break;
-				case yaml_event_type_t.YAML_MAPPING_START_EVENT:
-					if (key is null)
-						throw new Error("parse error", __FILE__, __LINE__);
-					else
-					{
-						res[key] = parseMapping(&event);
-						key = null;
-					}
-					break;
-				case yaml_event_type_t.YAML_MAPPING_END_EVENT:
-					if (key !is null)
-					{
-						res[key] = new YamlScalar("");
-						key = null;
-					}
-					break end_parsing;
-				default:
+			case yaml_event_type_t.YAML_ALIAS_EVENT:
+				if (key is null)
 					throw new Error("parse error", __FILE__, __LINE__);
+				else
+				{
+					res[key] = aliases[to!string(cast(char*) event.data.alias_.anchor)];
+					key = null;
+				}
+				break;
+			case yaml_event_type_t.YAML_SCALAR_EVENT:
+				if (key is null)
+					key = parseScalar(&event);
+				else
+				{
+					res[key] = parseScalar(&event);
+					key = null;
+				}
+				break;
+			case yaml_event_type_t.YAML_SEQUENCE_START_EVENT:
+				if (key is null)
+					throw new Error("parse error", __FILE__, __LINE__);
+				else
+				{
+					res[key] = parseSequence(&event);
+					key = null;
+				}
+				break;
+			case yaml_event_type_t.YAML_MAPPING_START_EVENT:
+				if (key is null)
+					throw new Error("parse error", __FILE__, __LINE__);
+				else
+				{
+					res[key] = parseMapping(&event);
+					key = null;
+				}
+				break;
+			case yaml_event_type_t.YAML_MAPPING_END_EVENT:
+				if (key !is null)
+				{
+					res[key] = new YamlScalar("");
+					key = null;
+				}
+				break end_parsing;
+			default:
+				throw new Error("parse error", __FILE__, __LINE__);
 			}
 		}
 		if (!parseRes)

@@ -5,159 +5,199 @@ import qc, type, container, validators, widgets;
 
 abstract class Field
 {
-	protected:
-		uint maxLen_;
+protected:
 
-	public:
-		Container container;
-		string id, label, name, hint, onClick, onChange, onLoad;
-		bool required, unique, pk, index;
-		Validator[string] validators;
-		string[] errors, classes;
-		FieldWidget widget, ajaxWidget;
-		
-		this () @safe
-		{}
-		Field addValidator (string cl, Validator v) @safe
-		{
-			validators[cl] = v;
-			return this;
-		}
-		uint maxLen (uint v) @safe
-		{
-			maxLen_ = v;
-			return v;
-		}
-		uint maxLen () const
-		{
-			return maxLen_;
-		}
-		string asHtml () @safe const
-		in
-		{
-			assert(widget !is null);
-		}
-		body
-		{
-			return widget(this);
-		}
-		string js () @safe const
-		in
-		{
-			assert(widget !is null);
-		}
-		body
-		{
-			return widget.js(this);
-		}
-		
-		abstract:
-			bool valid () @safe;
-			string defaultValAsString () @safe const;
-			string valAsString () @safe const;
+	uint maxLen_;
+
+public:
+
+	Container container;
+	string id, label, name, hint, onClick, onChange, onLoad;
+	bool required, unique, pk, index;
+	Validator[string] validators;
+	string[] errors, classes;
+	FieldWidget widget, ajaxWidget;
+
+@safe:
+	
+	this ()
+	{}
+	
+	Field addValidator (string cl, Validator v)
+	{
+		validators[cl] = v;
+		return this;
+	}
+	
+	uint maxLen (uint v)
+	{
+		maxLen_ = v;
+		return v;
+	}
+	
+	const
+	uint maxLen ()
+	{
+		return maxLen_;
+	}
+	
+	const
+	string asHtml ()
+	in
+	{
+		assert(widget !is null);
+	}
+	body
+	{
+		return widget(this);
+	}
+	
+	const
+	string js ()
+	in
+	{
+		assert(widget !is null);
+	}
+	body
+	{
+		return widget.js(this);
+	}
+	
+abstract:
+
+	bool valid ();
+
+const:
+
+	string defaultValAsString ();
+	string valAsString ();
 }
 
 class TextField: Field
 {
-	protected:
-		string value_;
-		
-	public:
-		string defaultVal;
-		
-		this () @safe
-		{
-			super();
-		}
-		string value (string v) @safe
-		{
-			value_ = v;
-			return v;
-		}
-		uint value (uint v) @trusted
-		{
-			value_ = to!string(v);
-			return v;
-		}
-		int value (int v) @trusted
-		{
-			value_ = to!string(v);
-			return v;
-		}
-		string value () @safe const
-		{
-			return value_;
-		}
-		bool valid () @trusted
-		{
-			bool res = true;
-			foreach (v; validators)
-				if (!v.valid(value))
-				{
-					// TODO: add error
-					res = false;
-				}
-			return res;
-		}
-		string valAsString () @safe const
-		{
-			return value;
-		}
-		string defaultValAsString () @safe const
-		{
-			return defaultVal;
-		}
-		uint minLen () const
-		{
-			auto v = "length" in validators;
-			if (v is null)
-				return 0;
-			assert(isA!LengthValidator(*v));
-			return (cast(LengthValidator)*v).min;
-		}
-		uint minLen (uint len) @safe
-		{
-			auto v = LengthValidator.key in validators;
-			if (v is null)
-				addValidator(LengthValidator.key, new LengthValidator(len, 0));
-			else
-				(cast(LengthValidator)*v).min = len;
-			return len;	
-		}
-		uint maxLen () const
-		{
-			auto v = "length" in validators;
-			if (v is null)
-				return 0;
-			assert(isA!LengthValidator(*v));
-			return (cast(LengthValidator)*v).max;
-		}
-		uint maxLen (uint len) @safe
-		{
-			auto v = LengthValidator.key in validators;
-			if (v is null)
-				addValidator(LengthValidator.key, new LengthValidator(len));
-			else
-				(cast(LengthValidator)*v).max = len;
-			return len;
-		}/+
-		string regexp ()
-		{
-			auto v = RegexpValidator.key in validators;
-			if (v is null)
-				return null;
-			else
-				return (cast(RegexpValidator)*v).regexp;
-		}
-		string regexp (string s)
-		{
-			auto v = RegexpValidator.key in validators;
-			if (v is null)
-				addValidator(RegexpValidator.key, new RegexpValidator(s));
-			else
-				return (cast(RegexpValidator)*v).regexp = s;
-			return s;
-		}+/
+protected:
+
+	string value_;
+	
+public:
+
+	string defaultVal;
+
+@safe:
+	
+	this ()
+	{
+		super();
+	}
+	
+	string value (string v)
+	{
+		value_ = v;
+		return v;
+	}
+	
+	@trusted
+	uint value (uint v)
+	{
+		value_ = to!string(v);
+		return v;
+	}
+	
+	@trusted
+	int value (int v)
+	{
+		value_ = to!string(v);
+		return v;
+	}
+	
+	const
+	string value ()
+	{
+		return value_;
+	}
+	
+	@trusted
+	bool valid ()
+	{
+		bool res = true;
+		foreach (v; validators)
+			if (!v.valid(value))
+			{
+				// TODO: add error
+				res = false;
+			}
+		return res;
+	}
+	
+	const
+	string valAsString ()
+	{
+		return value;
+	}
+	
+	const
+	string defaultValAsString ()
+	{
+		return defaultVal;
+	}
+	
+	const
+	uint minLen ()
+	{
+		auto v = "length" in validators;
+		if (v is null)
+			return 0;
+		assert(isA!LengthValidator(*v));
+		return (cast(LengthValidator)*v).min;
+	}
+	
+	uint minLen (uint len)
+	{
+		auto v = LengthValidator.key in validators;
+		if (v is null)
+			addValidator(LengthValidator.key, new LengthValidator(len, 0));
+		else
+			(cast(LengthValidator)*v).min = len;
+		return len;	
+	}
+	
+	const
+	uint maxLen ()
+	{
+		auto v = "length" in validators;
+		if (v is null)
+			return 0;
+		assert(isA!LengthValidator(*v));
+		return (cast(LengthValidator)*v).max;
+	}
+	
+	uint maxLen (uint len)
+	{
+		auto v = LengthValidator.key in validators;
+		if (v is null)
+			addValidator(LengthValidator.key, new LengthValidator(len));
+		else
+			(cast(LengthValidator)*v).max = len;
+		return len;
+	}
+	/+
+	string regexp ()
+	{
+		auto v = RegexpValidator.key in validators;
+		if (v is null)
+			return null;
+		else
+			return (cast(RegexpValidator)*v).regexp;
+	}
+	string regexp (string s)
+	{
+		auto v = RegexpValidator.key in validators;
+		if (v is null)
+			addValidator(RegexpValidator.key, new RegexpValidator(s));
+		else
+			return (cast(RegexpValidator)*v).regexp = s;
+		return s;
+	}+/
 		
 	unittest
 	{
@@ -173,86 +213,105 @@ class TextField: Field
 
 class LoginField: TextField
 {
-	public:
-		this () @safe
-		{
-			super();
-			minLen = 1;
-			maxLen = 32;
-			required = true;
-			unique = true;
-			//regexp = "^[a-zA-Z0-9_%.%-]+$";
-		}
-		this (string label) @safe
-		{
-			this();
-			this.label = label;
-		}
+public:
+@safe:
+
+	this ()
+	{
+		super();
+		minLen = 1;
+		maxLen = 32;
+		required = true;
+		unique = true;
+		//regexp = "^[a-zA-Z0-9_%.%-]+$";
+	}
+	
+	this (string label)
+	{
+		this();
+		this.label = label;
+	}
 }
 
 class PasswordField: TextField
 {
-	protected:
-	public:
-		this () @safe
-		{
-			this.required = true;
-		}
-		this (string label) @safe
-		{
-			this();
-			this.label = label;
-		}
+public:
+@safe:
+
+	this ()
+	{
+		this.required = true;
+	}
+	
+	this (string label)
+	{
+		this();
+		this.label = label;
+	}
 }
 
 class IntField: Field
 {
-	protected:
-		int value_;
-		
-	public:
-		int defaultVal;
+protected:
+
+	int value_;
 	
-		string value (string v) @trusted
-		{
-			value_ = to!int(v);
-			return v;
-		}
-		uint value (uint v) @safe
-		{
-			value_ = cast(int)v;
-			return v;
-		}
-		int value (int v) @safe
-		{
-			value_ = v;
-			return v;
-		}
-		int value () @safe const
-		{
-			return value_;
-		}
-		bool valid () @trusted
-		{
-			bool res = true;
-			foreach (v; validators)
-				if (!v.valid(value))
-				{
-					// TODO: add error
-					res = false;
-				}
-			return res;
-		}
-		string valAsString () @trusted const
-		{
-			return to!string(value);
-		}
-		string defaultValAsString () @trusted const
-		{
-			return to!string(defaultVal);
-		}
+public:
+
+	int defaultVal;
+
+@safe:
+
+	@trusted
+	string value (string v)
+	{
+		value_ = to!int(v);
+		return v;
+	}
 	
-		
+	uint value (uint v)
+	{
+		value_ = cast(int)v;
+		return v;
+	}
+	
+	int value (int v)
+	{
+		value_ = v;
+		return v;
+	}
+	
+	const
+	int value ()
+	{
+		return value_;
+	}
+	
+	@trusted
+	bool valid ()
+	{
+		bool res = true;
+		foreach (v; validators)
+			if (!v.valid(value))
+			{
+				// TODO: add error
+				res = false;
+			}
+		return res;
+	}
+	
+	@trusted const
+	string valAsString ()
+	{
+		return to!string(value);
+	}
+	
+	@trusted const
+	string defaultValAsString ()
+	{
+		return to!string(defaultVal);
+	}
+	
 	unittest
 	{
 		auto f = new IntField;
@@ -263,50 +322,64 @@ class IntField: Field
 
 class BoolField: Field
 {
-	protected:
-		bool value_;
-		
-	public:
-		bool defaultVal;
-		
-		string value (string v) @safe
-		{
-			value_ = v !is null && v.length;
-			return v;
-		}
-		uint value (uint v) @safe
-		{
-			value_ = cast(bool)v;
-			return v;
-		}
-		int value (int v) @safe
-		{
-			value_ = cast(bool)v;
-			return v;
-		}
-		bool value () @safe const
-		{
-			return value_;
-		}
-		bool valid () @trusted
-		{
-			bool res = true;
-			foreach (v; validators)
-				if (!v.valid(value))
-				{
-					// TODO: add error
-					res = false;
-				}
-			return res;
-		}
-		string valAsString () @safe const
-		{
-			return value? "true" : "false";
-		}
-		string defaultValAsString () @safe const
-		{
-			return defaultVal? "true" : "false";
-		}
+protected:
+
+	bool value_;
+	
+public:
+
+	bool defaultVal;
+
+@safe:
+	
+	string value (string v)
+	{
+		value_ = v !is null && v.length;
+		return v;
+	}
+	
+	uint value (uint v)
+	{
+		value_ = cast(bool)v;
+		return v;
+	}
+	
+	int value (int v)
+	{
+		value_ = cast(bool)v;
+		return v;
+	}
+	
+	const
+	bool value ()
+	{
+		return value_;
+	}
+	
+	@trusted
+	bool valid ()
+	{
+		bool res = true;
+		foreach (v; validators)
+			if (!v.valid(value))
+			{
+				// TODO: add error
+				res = false;
+			}
+		return res;
+	}
+	
+	const
+	string valAsString ()
+	{
+		return value? "true" : "false";
+	}
+	
+	const
+	string defaultValAsString ()
+	{
+		return defaultVal? "true" : "false";
+	}
 		
 	unittest
 	{
@@ -318,16 +391,15 @@ class BoolField: Field
 
 class ButtonField: TextField
 {
-	protected:
-	public:
 }
 
 class SubmitField: ButtonField
 {
-	protected:
-	public:
-		this (in string defaultVal)
-		{
-			this.defaultVal = defaultVal;
-		}
+public:
+@safe:
+
+	this (in string defaultVal)
+	{
+		this.defaultVal = defaultVal;
+	}
 }

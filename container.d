@@ -19,20 +19,28 @@ string fieldGetterAndSetter (FieldClass, string name) () @safe pure
 
 abstract class Container
 {
-	protected:
-		Field[string] fieldsByName;
-		
-	public:
-		string[] errors, msgs;
-		
-		this () @safe
-		{}
-		ref Field[string] rwFields () @safe @property
-		{
-			return fieldsByName;
-		}
-		const(Field[string]) fields () @safe @property pure const
-		{
-			return fieldsByName;
-		}
+protected:
+
+	Field[string] fieldsByName;
+	
+public:
+@safe:
+
+	string[] errors, msgs;
+	
+	this ()
+	{}
+
+@property:
+
+	ref Field[string] rwFields ()
+	{
+		return fieldsByName;
+	}
+	
+	const
+	Field[string] fields ()
+	{
+		return fieldsByName;
+	}
 }
