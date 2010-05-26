@@ -28,9 +28,6 @@ abstract class YamlElement
 					throw new Error("not implemented", __FILE__, __LINE__);
 			}
 		}
-		void setAlias (yaml_event_t* event) @safe
-		{
-		}
 }
 
 class YamlScalar: YamlElement
@@ -38,9 +35,11 @@ class YamlScalar: YamlElement
 	public:
 		string value;
 		
-		this (string value) @safe
+		this (string value) @trusted
 		{
 			super(null);
+			if (value.endsWith("\n"))
+				value = value[0 .. $ - 1];
 			this.value = value;
 		}
 		this (yaml_event_t* event) @trusted
@@ -52,8 +51,10 @@ class YamlScalar: YamlElement
 		{
 			super(event);
 			value = to!string(cast(char*)event.data.scalar.value);
+			if (value.endsWith("\n"))
+				value = value[0 .. $ - 1];
 		}
-		hash_t toHash () /*@trusted const*/
+		hash_t toHash () /*@safe const*/
 		{
 			return typeid(value).getHash(&value);
 		}
@@ -62,7 +63,7 @@ class YamlScalar: YamlElement
 			if (this is o)
 				return 0;
 			if (isA!YamlScalar(o))
-				return value > (cast(YamlScalar)o).value;
+				return value > (cast(YamlScalar) o).value;
 			throw new Error("not implemented");
 		}
 }
@@ -107,12 +108,14 @@ class YamlMapping: YamlElement
 {
 	public:
 		YamlElement[YamlScalar] elements;
+		YamlScalar[] keysOrder;
 		bool flowStyle;
 		
-		this (YamlElement[YamlScalar] elements) @safe
+		this (YamlElement[YamlScalar] elements) @trusted
 		{
 			super(null);
 			this.elements = elements;
+			this.keysOrder = elements.keys;
 		}
 		this (yaml_event_t* event) @safe
 		in
@@ -131,6 +134,8 @@ class YamlMapping: YamlElement
 		}
 		YamlElement opIndexAssign (YamlElement el, YamlScalar idx)
 		{
+			if ((idx in elements) is null)
+				keysOrder ~= idx;
 			elements[idx] = el;
 			return el;
 		}
@@ -149,9 +154,15 @@ class YamlDocument
 		{
 			root = mapping;
 		}
-		string scalarAsYaml (in YamlScalar scalar, bool forceFlow = false) @safe
+		string scalarAsYaml (in YamlScalar scalar, bool forceFlow = false) @trusted
 		{
-			return "\"" ~ scalar.value ~ "\"";
+			/+auto rx = regex("[\"\n:,]");
+			if (!scalar.value.match(rx).empty)
+				return "\"" ~ replace(scalar.value, "\"", "\\\"") ~ "\"";
+			else+/
+			if (-1 != scalar.value.indexOf("\n"))
+				return "\"" ~ replace(scalar.value, "\"", "\\\"") ~ "\"";
+			return scalar.value;
 		}
 		string sequenceAsYaml (in YamlSequence sequence, bool forceFlow = false) @trusted
 		{
@@ -166,7 +177,7 @@ class YamlDocument
 				}
 				else
 					if (i)
-						res ~= ("\n" ~ repeat(" ", indent * level) ~ "-");
+						res ~= ("\n" ~ repeat(" ", indent * level) ~ "- ");
 				auto type = typeid(el);
 				if (isA!YamlMapping(el))
 					res ~= mappingAsYaml(cast(YamlMapping) el, flowStyle);
@@ -179,14 +190,15 @@ class YamlDocument
 			}
 			return flowStyle? (res ~ "]") : res;
 		}
-		string mappingAsYaml (in YamlMapping mapping, bool forceFlow = false) @trusted
+		string mappingAsYaml (YamlMapping mapping, bool forceFlow = false) @trusted
 		{
 			auto flowStyle = forceFlow || mapping.flowStyle;
 			string res = flowStyle? "{" : repeat(" ", indent-1);
 			bool first = true;
 			auto indentStr = repeat(" ", indent * ++level);
-			foreach (key, el; mapping.elements)
+			foreach (key; mapping.keysOrder)
 			{
+				auto el = mapping[key];
 				if (!flowStyle)
 					res ~= "\n" ~ indentStr;
 				if (first)
