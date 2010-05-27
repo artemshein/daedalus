@@ -226,7 +226,7 @@ public:
 		this.table = table;
 	}
 	
-	const
+	/*const*/
 	string asSql ()
 	{
 		return "CREATE TABLE " ~ db.processPlaceholder("?#", table)
@@ -460,214 +460,208 @@ public:
 	{
 		return new MysqlDeleteRow(this);
 	}
-	
-	@trusted const
-	string fieldsSql (in string[string] fields, in string[string] tables)
+
+@trusted:
+
+	const
 	{
-		string[] res;
-		foreach (k, v; fields)
+		string fieldsSql (in string[string] fields, in string[string] tables)
 		{
-			if (k != v)
-				res ~= processPlaceholder("?#", v) ~ " AS " ~ processPlaceholder("?#", k);
-			else
-				if ("*" == v)
-					res ~= v;
+			string[] res;
+			/+foreach (k, v; fields)
+			{
+				if (k != v)
+					res ~= processPlaceholder("?#", v) ~ " AS " ~ processPlaceholder("?#", k);
+				else
+					if ("*" == v)
+						res ~= v;
+					else
+						res ~= processPlaceholder("?#", v);
+			}
+			+/string str = res.join(", ");/+
+			if (!str.length || "*" == res)
+				return processPlaceholder("?#", tables.values[0]) ~ ".*";+/
+			return str;
+		}
+		
+		string fromsSql (in string[string] from)
+		{
+			string[] res;
+			foreach (k, v; from)
+				if (k != v)
+					res ~= processPlaceholder("?#", v) ~ " AS "
+						~ processPlaceholder("?#", k);
 				else
 					res ~= processPlaceholder("?#", v);
+			return " FROM " ~ join(res, ", ");
 		}
-		string str = res.join(", ");
-		if (!str.length || "*" == res)
-			return processPlaceholder("?#", tables.values[0]) ~ ".*";
-		return str;
-	}
-	
-	@trusted const
-	string fromsSql (in string[string] from)
-	{
-		string[string] res;
-		foreach (k, v; from)
-			if (k != v)
-				res ~= processPlaceholder("?#", v) ~ " AS "
-					~ processPlaceholder("?#", k);
-			else
-				res ~= processPlaceholder("?#", v);
-		return " FROM " ~ join(res.values, ", ");
-	}
-	
-	@trusted const
-	string joinsSql (in BaseSelect.Join[][string] joins)
-	{
-		string[] res;
-		foreach (v; joins["inner"])
-			if (v.tableAlias.length)
-				res ~= processPlaceholders("JOIN ?# AS ?# ON ", v.table, v.tableAlias)
-					~ processPlaceholders(v.condition, v.values);
-			else
-				res ~= processPlaceholders("JOIN ?# ON ", v.table)
-					~ processPlaceholders(v.condition, v.values);
-		auto str = res.join(" ");
-		return str.length? (" " ~ str) : "";
-	}
-	
-	@trusted const
-	string wheresSql (in Expr[] where, in Expr[] orWhere)
-	{
-		string[] w, ow;
-		foreach (v; where)
-			w ~= processPlaceholders(v.expr, v.values);
-		foreach (v; orWhere)
-			ow ~= processPlaceholders(v.expr, v.values);
-		auto res = w.join(") AND (");
-		if (!res.length)
-			res = " WHERE (" ~ res ~ ")";
-		auto res2 = ow.join(") OR (");
-		if (res2.length)
-			res2 = res.length? (" OR (" ~ res2 ~ ")") : (" WHERE (" ~ res2 ~ ")");
-		return res ~ res2;
-	}
-	
-	const
-	string ordersSql (in string[] orders)
-	{
-		string[] res;
-		foreach (order; orders)
-			if ("*" == order)
-				res ~= "RAND()";
-			else if (order.startsWith("-"))
-				res ~= processPlaceholder("?#", order[1 .. $]) ~ " DESC";
-			else
-				res ~= processPlaceholder("?#", order) ~ " ASC";
-		auto str = res.join(", ");
-		return str.length? (" ORDER BY " ~ str) : "";
-	}
-	
-	const
-	string limitSql (in Limit limitCondition)
-	{
-		return limit[1]
-			? (limit[0]
-				? (" LIMIT " ~ to!string(limit[1] - limit[0]) ~ " OFFSET " ~ limit[0])
-				: (" LIMIT " ~ limit[1]))
-			: (limit[0]? (" LIMIT " ~ to!string(limit[0])) : "");
-	}
-	
-	const
-	string valuesSql (in string placeholders, in Variant[][] values)
-	{
-		string[] res;
-		foreach (v; values)
-			res ~= processPlaceholders(placeholders, values);
-		return "(" ~ res.join("), (") ~ ")";
-	}
-	
-	const
-	string setsSql (in Expr[] sets)
-	{
-		string[] exprs;
-		foreach (set; sets)
-			exprs ~= processPlaceholders(set.expr, set.values);
-		return " SET " ~ exprs.join(", ");
-	}
-	
-	const
-	string fieldsDefsSql (in CreateTable.Field[] fields)
-	{
-		string[] res;
-		foreach (v; fields)
-		{
-			auto fld = processPlaceholder("?#", v.name) ~ " " ~ v.type;
-			auto options = v.options;
-			if ((("primaryKey" in options) !is null) && cast(bool) options["primaryKey"])
-				fld ~= " PRIMARY KEY";
-			if ((("serial" in options) !is null) && cast(bool) options["serial"])
-				fld ~= " AUTO_INCREMENT";
-			if ((("null" in options) !is null) && cast(bool) options["null"])
-				fld ~= " NULL";
-			else
-				fld ~= " NOT NULL";
-			if ((("unique" in options) !is null) && cast(bool) options["unique"])
-				fld ~= " UNIQUE";
-			if (("default" in options) !is null)
-			{
-				auto type = typeid(options["default"]);
-				if (type == typeid(string))
-				{
-					if (options["default"].get!string() == "NULL")
-						fld ~= " DEFAULT NULL";
-					else
-						fld ~= " DEFAULT " ~ processPlaceholder("?", options["default"].get!string);
-				}	
-				else if (type == typeid(uint) || type == typeid(int))
-					fld ~= processPlaceholder("?d", options["default"]);
-				else
-					throw new Error("unsupported default option type " ~ to!string(options["default"].type), __FILE__, __LINE__);
-			}
-			res ~= fld;
-		}
-		return res.join(", ");
-	}
-	
-	const
-	string primaryKeySql (in string[] primary)
-	{
-		if (!primary.length)
-			return "";
-		string[] res;
-		foreach (v; primary)
-			res ~= processPlaceholder("?#", v);
-		return ", PRIMARY KEY (" ~ res.join(", ") ~ ")";
-	}
-	
-	const
-	string uniquesSql (in string[][] unique)
-	{
-		string[] res;
-		if (!unique.length)
-			return "";
-		foreach (v; unique)
-		{
-			string[] uniq;
-			foreach (v2; v)
-				uniq ~= processPlaceholder("?#", v2);
-			res ~= ", UNIQUE (" ~ uniq.join(", ") ~ ")";
-		}
-		return res.join(",");
-	}
-	
-	const
-	string constraintsSql (in CreateTable.Constraint[] refs)
-	{
-		string[] res;
-		if (!refs.length)
-			return "";
-		foreach (v; refs)
-		{
-			auto refStr = processPlaceholders(", CONSTRAINT FOREIGN KEY (?#) REFERENCES ?# (?#)", v.name, v.table, v.field);
-			if (v.onUpdate.length)
-				refStr ~= " ON UPDATE " ~ v.onUpdate;
-			if (v.onDelete.length)
-				refStr ~= " ON DELETE " ~ v.onDelete;
-			res ~= refStr;
-		}
-		return res.join("");
-	}
-	
-	const
-	string optionsSql (in string[string] options)
-	{
-		string[] res;
-		if (!options.length)
-			return "";
-		foreach (k, v; options)
-			if ("charset" == k)
-				res ~= "CHARACTER SET " ~ v;
-			else if ("engine" == k)
-				res ~= "ENGINE = " ~ v;
-			else
-				throw new Error("unsupported option " ~ k, __FILE__, __LINE__);
-		return " " ~ res.join(" ");
-	}
 		
+		string joinsSql (in BaseSelect.Join[][string] joins)
+		{
+			string[] res;
+			foreach (v; joins["inner"])
+				if (v.tableAlias.length)
+					res ~= processPlaceholders("JOIN ?# AS ?# ON ", v.table, v.tableAlias)
+						~ processPlaceholders(v.condition, v.values);
+				else
+					res ~= processPlaceholders("JOIN ?# ON ", v.table)
+						~ processPlaceholders(v.condition, v.values);
+			auto str = res.join(" ");
+			return str.length? (" " ~ str) : "";
+		}
+		
+		string wheresSql (in Expr[] where, in Expr[] orWhere)
+		{
+			string[] w, ow;
+			foreach (v; where)
+				w ~= processPlaceholders(v.expr, v.values);
+			foreach (v; orWhere)
+				ow ~= processPlaceholders(v.expr, v.values);
+			auto res = w.join(") AND (");
+			if (!res.length)
+				res = " WHERE (" ~ res ~ ")";
+			auto res2 = ow.join(") OR (");
+			if (res2.length)
+				res2 = res.length? (" OR (" ~ res2 ~ ")") : (" WHERE (" ~ res2 ~ ")");
+			return res ~ res2;
+		}
+		
+		string ordersSql (in string[] orders)
+		{
+			string[] res;
+			foreach (order; orders)
+				if ("*" == order)
+					res ~= "RAND()";
+				else if (order.startsWith("-"))
+					res ~= processPlaceholder("?#", order[1 .. $]) ~ " DESC";
+				else
+					res ~= processPlaceholder("?#", order) ~ " ASC";
+			auto str = res.join(", ");
+			return str.length? (" ORDER BY " ~ str) : "";
+		}
+		
+		string limitSql (in Limit limitCondition)
+		{
+			auto fromStr = to!string(limitCondition.from);
+			auto toStr = to!string(limitCondition.to);
+			return limitCondition.to
+				? (limitCondition.from
+					? (" LIMIT " ~ to!string(limitCondition.to - limitCondition.from) ~ " OFFSET " ~ fromStr)
+					: (" LIMIT " ~ toStr))
+				: (limitCondition.from? (" LIMIT " ~ fromStr) : "");
+		}
+		
+		string valuesSql (in string placeholders, in Variant[][] values)
+		{
+			string[] res;
+			foreach (v; values)
+				res ~= processPlaceholders(placeholders, values);
+			return "(" ~ res.join("), (") ~ ")";
+		}
+		
+		string setsSql (in Expr[] sets)
+		{
+			string[] exprs;
+			foreach (set; sets)
+				exprs ~= processPlaceholders(set.expr, set.values);
+			return " SET " ~ exprs.join(", ");
+		}
+		
+		string fieldsDefsSql (/*in*/ CreateTable.Field[] fields)
+		{
+			string[] res;
+			foreach (v; fields)
+			{
+				auto fld = processPlaceholder("?#", v.name) ~ " " ~ v.type;
+				auto options = v.options;
+				if ((("primaryKey" in options) !is null) && options["primaryKey"].get!bool)
+					fld ~= " PRIMARY KEY";
+				if ((("serial" in options) !is null) && options["serial"].get!bool)
+					fld ~= " AUTO_INCREMENT";
+				if ((("null" in options) !is null) && options["null"].get!bool)
+					fld ~= " NULL";
+				else
+					fld ~= " NOT NULL";
+				if ((("unique" in options) !is null) && options["unique"].get!bool)
+					fld ~= " UNIQUE";
+				if (("default" in options) !is null)
+				{
+					auto type = typeid(options["default"]);
+					if (type == typeid(string))
+					{
+						if (options["default"].get!string() == "NULL")
+							fld ~= " DEFAULT NULL";
+						else
+							fld ~= " DEFAULT " ~ processPlaceholder("?", options["default"].get!string);
+					}	
+					else if (type == typeid(uint) || type == typeid(int))
+						fld ~= processPlaceholder("?d", options["default"]);
+					else
+						throw new Error("unsupported default option type " ~ to!string(options["default"].type), __FILE__, __LINE__);
+				}
+				res ~= fld;
+			}
+			return res.join(", ");
+		}
+		
+		string primaryKeySql (in string[] primary)
+		{
+			if (!primary.length)
+				return "";
+			string[] res;
+			foreach (v; primary)
+				res ~= processPlaceholder("?#", v);
+			return ", PRIMARY KEY (" ~ res.join(", ") ~ ")";
+		}
+		
+		string uniquesSql (in string[][] unique)
+		{
+			string[] res;
+			if (!unique.length)
+				return "";
+			foreach (v; unique)
+			{
+				string[] uniq;
+				foreach (v2; v)
+					uniq ~= processPlaceholder("?#", v2);
+				res ~= ", UNIQUE (" ~ uniq.join(", ") ~ ")";
+			}
+			return res.join(",");
+		}
+		
+		string constraintsSql (in CreateTable.Constraint[] refs)
+		{
+			string[] res;
+			if (!refs.length)
+				return "";
+			foreach (v; refs)
+			{
+				auto refStr = processPlaceholders(", CONSTRAINT FOREIGN KEY (?#) REFERENCES ?# (?#)", v.name, v.table, v.field);
+				if (v.onUpdate.length)
+					refStr ~= " ON UPDATE " ~ v.onUpdate;
+				if (v.onDelete.length)
+					refStr ~= " ON DELETE " ~ v.onDelete;
+				res ~= refStr;
+			}
+			return res.join("");
+		}
+		
+		string optionsSql (in string[string] options)
+		{
+			string[] res;
+			if (!options.length)
+				return "";
+			foreach (k, v; options)
+				if ("charset" == k)
+					res ~= "CHARACTER SET " ~ v;
+				else if ("engine" == k)
+					res ~= "ENGINE = " ~ v;
+				else
+					throw new Error("unsupported option " ~ k, __FILE__, __LINE__);
+			return " " ~ res.join(" ");
+		}
+	}
+	
 	unittest
 	{
 		auto m = new MysqlDriver(MYSQL_UNITTEST_HOST, MYSQL_UNITTEST_USER, MYSQL_UNITTEST_PASSWORD, MYSQL_UNITTEST_DB, MYSQL_UNITTEST_PORT);
@@ -675,14 +669,14 @@ public:
 		assert(m.query("CREATE TABLE `t` (`id` INT)"));
 		assert(m.query("INSERT INTO `t` (`id`) VALUES (10), (20), (30)"));
 		assert(3 == m.rowsAffected);
-		auto res = m.selectRow("SELECT * FROM `t` LIMIT 1");
+		auto res = m.fetchRow("SELECT * FROM `t` LIMIT 1");
 		assert(10 == res["id"].v.get!int);
-		auto res2 = m.selectAll("SELECT * FROM `t`");
+		auto res2 = m.fetchAll("SELECT * FROM `t`");
 		assert(3 == res2.length);
 		assert(10 == res2[0]["id"].v.get!int);
 		assert(20 == res2[1]["id"].v.get!int);
 		assert(30 == res2[2]["id"].v.get!int);
-		assert(10 == m.selectCell("SELECT `id` FROM `t` LIMIT 1").get!int);
+		assert(10 == m.fetchCell("SELECT `id` FROM `t` LIMIT 1").get!int);
 		assert(m.query("DROP TABLE `t`"));
 	}
 }

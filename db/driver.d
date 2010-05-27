@@ -568,7 +568,7 @@ public:
 		return db.query(asSql);
 	}
 	
-	const
+	const @trusted
 	string asSql ()
 	{
 		return db.processPlaceholders("DROP TABLE ?#", table);
@@ -596,7 +596,7 @@ public:
 		{
 			string name;
 			string type;
-			string[string] params;
+			Variant[string] options;
 		}
 		struct Constraint
 		{
@@ -604,14 +604,14 @@ public:
 		}
 	}
 	
-	abstract const
+	abstract /*const*/
 	string asSql ();
 	
 	bool opCall ()
 	{
 		return db.query(asSql);
 	}
-	typeof(this) field (string name, string type, string[string] params)
+	typeof(this) field (string name, string type, Variant[string] params)
 	{
 		fields ~= Field(name, type, params);
 		return this;
@@ -647,7 +647,7 @@ protected:
 	
 public:
 
-	static @trusted
+	@trusted const
 	string processPlaceholders (string expr, ...)
 	{
 		string res;
@@ -689,7 +689,7 @@ public:
 		string limitSql (in Limit limitCondition);
 		string valuesSql (in string placeholders, in Variant[][] values);
 		string setsSql (in Expr[] sets);
-		string fieldsDefsSql (in CreateTable.Field[] fields);
+		string fieldsDefsSql (/*in*/ CreateTable.Field[] fields);
 		string primaryKeySql (in string[] primary);
 		string uniquesSql (in string[][] unique);
 		string constraintsSql (in CreateTable.Constraint[] refs);
