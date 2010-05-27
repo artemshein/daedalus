@@ -7,7 +7,7 @@
  */
 module db.db;
 
-import std.variant, std.string, std.typetuple;
+import std.variant, std.string, std.typetuple, std.conv;
 import config, db.driver, fixes, strings;
 
 version(MySQL) import db.mysql.driver;
@@ -69,10 +69,10 @@ SqlDriver dbConnect (string dsn) @trusted
 
 	switch (tolower(driver))
 	{
-		case "mysql":
-			return new MysqlDriver(host, login, pass, database, to!ushort(port));
-		default:
-			assert(false, "unsupported driver");
+	case "mysql":
+		return new MysqlDriver(host, login, pass, database, to!ushort(port));
+	default:
+		assert(false, "unsupported driver");
 	}
 	assert(false);
 }
@@ -99,7 +99,7 @@ public:
 	}
 	typeof(this) values (...)
 	{
-		this.values_ ~= packArguments(_arguments, _argptr);
+		this.values_ ~= packArgs(_arguments, _argptr);
 		return this;
 	}
 	bool opCall ()
@@ -140,6 +140,22 @@ public:
 
 abstract class BaseSelect
 {
+public:
+	static
+	struct Limit
+	{
+		uint from, to;
+	}
+	
+	static
+	struct Join
+	{
+		string tableAlias;
+		string table;
+		string condition;
+		Variant[] values;
+	}
+	
 protected:
 
 	SqlDriver db;
@@ -147,18 +163,10 @@ protected:
 	Join[][string] joins;
 	Expr[] whereConditions, orWhereConditions;
 	string[] orderConditions;
-	TypeTuple!(uint, uint) limitCondition;
+	Limit limitCondition;
 	
 public:
 @safe:
-
-	static struct Join
-	{
-		string table;
-		string tableAlias;
-		string condition;
-		Variant[] values;
-	}
 	
 	abstract const
 	string asSql ();
@@ -168,117 +176,131 @@ public:
 		this.db = db;
 		this.fields = fields;
 		joins["inner"] = (Join[]).init;
+		joins["outer"] = (Join[]).init;
+		joins["left"] = (Join[]).init;
+		joins["right"] = (Join[]).init;
+		joins["full"] = (Join[]).init;
+		joins["cross"] = (Join[]).init;
+		joins["natural"] = (Join[]).init;
 	}
+	
 	this (SqlDriver db, string[] fields ...)
 	{
 		this(db, fields);
 	}
+	
 	typeof(this) from (string[] tables ...)
 	{
 		foreach (table; tables)
 			this.tables[table] ~= table;
 		return this;
 	}
+	
+	@trusted
 	typeof(this) from (string[string] tables)
 	{
 		foreach (name, table; tables)
 			this.tables[name] = table;
 		return this;
 	}
+	
 	typeof(this) fields (string[] fields ...)
 	{
 		foreach (field; fields)
 			this.fields_[field] = field;
 		return this;
 	}
+	
+	@trusted
 	typeof(this) fields (string[string] fields)
 	{
-		this.fields_ ~= fields;
+		foreach (name, field; fields)
+			this.fields_[name] = field;
 		return this;
 	}
+	
 	typeof(this) where (string expr, ...)
 	{
 		whereConditions ~= Expr(expr, packArgs(_arguments, _argptr));
 		return this;
 	}
+	
 	typeof(this) orWhere (string expr, ...)
 	{
 		orWhereConditions ~= Expr(expr, packArgs(_arguments, _argptr));
 		return this;
 	}
+	
 	typeof(this) order (string[] orders ...)
 	{
 		orderConditions ~= orders;
 		return this;
 	}
+	
 	typeof(this) limit (uint from, uint to = 0)
 	{
-		if (to)
-			limitCondition = Tuple!(uint, from, uint, to);
-		else
-			limitCondition = Tuple!(uint, 0, uint, from);
+		limitCondition.from = to? from : 0;
+		limitCondition.to = to? to : from;
 		return this;
 	}
+	
 	typeof(this) limitPage (uint page, uint onPage)
 	{
 		return limit((page - 1) * onPage, page * onPage);
 	}
-	/+typeof(this) joinInternalProcess (string joinType, string[string] joinTable, string[] condition, string[string] fields)
+	
+	typeof(this) join (string[string] table, string condition, Variant[] values)
 	{
-		auto tbl = joinTable.values[0];
-		// Condition
-		auto cndStr = db.processPlaceholders(condition[0], condition[1..$]);
-		bool founded;
-		foreach (v; tables)
-			if (tbl == v)
-			{
-				founded = true;
-				break;
-			}
-		if (!founded)
-			foreach (v; joins[joinType])
-				if (v.values[0] == tbl)
-				{
-					founded = true;
-					
-					v[2] = "("..v[2].." OR "..condition..")"
-					break
-				}
-		if not founded then
-			table.insert(joinType, {joinTable, condition})
-		end
-	}+/
+		return joinInner(table, condition, values);
+	}
+	
 	typeof(this) join (string[string] table, string condition, ...)
 	{
-		return joinInner(table, condition, packArgs(_argument, _argptr));
+		return joinInner(table, condition, packArgs(_arguments, _argptr));
 	}
+	
+@safe:
+
 	typeof(this) joinInner (string[string] table, string condition, ...)
 	{
-		return joinInternalProcess(joins["inner"], table, condition, packArgs(_arguments, _argptr));
+		joins["inner"] ~= new Join(table.keys[0], table.values[0], condition, packArgs(_arguments, _argptr));
+		return this;
 	}
+	
 	typeof(this) joinOuter (string[string] table, string condition, ...)
 	{
-		return joinInternalProcess(joins["outer"], table, condition, packArgs(_arguments, _argptr));
+		joins["outer"] ~= new Join(table.keys[0], table.values[0], condition, packArgs(_arguments, _argptr));
+		return this;
 	}
+	
 	typeof(this) joinLeft (string[string] table, string condition, ...)
 	{
-		return joinInternalProcess(joins["left"], table, condition, packArgs(_arguments, _argptr));
+		joins["left"] ~= new Join(table.keys[0], table.values[0], condition, packArgs(_arguments, _argptr));
+		return this;
 	}
+	
 	typeof(this) joinRight (string[string] table, string condition, ...)
 	{
-		return joinInternalProcess(joins["right"], table, condition, packArgs(_arguments, _argptr));
+		joins["right"] ~= new Join(table.keys[0], table.values[0], condition, packArgs(_arguments, _argptr));
+		return this;
 	}
+	
 	typeof(this) joinFull (string[string] table, string condition, ...)
 	{
-		return joinInternalProcess(joins["full"], table, condition, packArgs(_arguments, _argptr));
+		joins["full"] ~= new Join(table.keys[0], table.values[0], condition, packArgs(_arguments, _argptr));
+		return this;
 	}
+	
 	typeof(this) joinCross (string[string] table, string condition, ...)
 	{
-		return joinInternalProcess(joins["cross"], table, condition, packArgs(_arguments, _argptr));
+		joins["cross"] ~= new Join(table.keys[0], table.values[0], condition, packArgs(_arguments, _argptr));
+		return this;
 	}
+	
 	typeof(this) joinNatural (string[string] table, string condition, ...)
 	{
-		return joinInternalProcess(joins["natural"], table, condition, packArgs(_arguments, _argptr));
+		joins["natural"] ~= new Join(table.keys[0], table.values[0], condition, packArgs(_arguments, _argptr));
+		return this;
 	}
 	/+
 	joinInnerUsing = function (self, ...) table.insert(self._joinsUsing.inner, {...}) return self end;
@@ -344,6 +366,7 @@ class Update
 {
 protected:
 
+	SqlDriver db;
 	string table;
 	Expr[] sets;
 	

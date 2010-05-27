@@ -268,11 +268,13 @@ protected:
 public:
 @safe:
 
+	@trusted
 	this ()
 	{	
 		yaml_parser_initialize(&parser);
 	}
 	
+	@trusted
 	~this ()
 	{
 		yaml_parser_delete(&parser);
@@ -283,6 +285,7 @@ public:
 		return cast(uint) parser.error;
 	}
 	
+	@trusted
 	string errorMsg ()
 	{
 		switch (errorCode)
@@ -315,6 +318,7 @@ public:
 		return res;
 	}
 	
+	@trusted
 	YamlSequence parseSequence (yaml_event_t* seqEvent)
 	{
 		auto res = new YamlSequence(seqEvent);
@@ -349,6 +353,7 @@ public:
 		return res;
 	}
 	
+	@trusted
 	YamlMapping parseMapping (yaml_event_t* mapEvent)
 	{
 		auto res = new YamlMapping(mapEvent);
@@ -413,6 +418,7 @@ public:
 		return res;
 	}
 	
+	@trusted
 	YamlDocument parse (string s)
 	{
 		auto sz = toStringz(s);

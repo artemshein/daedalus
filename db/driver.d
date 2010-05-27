@@ -59,8 +59,8 @@ public:
 	
 		Select select (string[] fields ...);
 		SelectRow selectRow (string[] fields ...);
-		SelectCell selectCell ();
-		Insert insert (string expr, ...);
+		SelectCell selectCell (string field);
+		Insert insert (string expr, string[] fields ...);
 		InsertRow insertRow ();
 		
 	const:

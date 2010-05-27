@@ -338,7 +338,7 @@ public:
 		return new MysqlSelect(this, fields);
 	}
 	
-	MysqlSelectRow selectRow (string fields ...)
+	MysqlSelectRow selectRow (string[] fields ...)
 	{
 		return new MysqlSelectRow(this, fields);
 	}
@@ -472,7 +472,7 @@ public:
 	}
 	
 	const
-	string fFieldsDefsSql (in CreateTable.Field[] fields)
+	string fieldsDefsSql (in CreateTable.Field[] fields)
 	{
 		string[] res;
 		foreach (v; fields)
