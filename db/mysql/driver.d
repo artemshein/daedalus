@@ -8,7 +8,7 @@
 module db.mysql.driver;
 
 import std.string, std.conv, std.variant, core.stdc.string, std.typetuple;
-import db.driver, db.db, db.mysql.libmysqlclient, fixes;
+import db.driver, db.mysql.libmysqlclient, fixes;
 
 version(unittest)
 {
@@ -49,7 +49,7 @@ public:
 			~ db.fromsSql(tables) ~ db.joinsSql(joins)
 			~ db.wheresSql(whereConditions, orWhereConditions)
 			~ db.ordersSql(orderConditions)
-			~ db.limitSql(limitCondition) ~ ";";
+			~ db.limitSql(limitCondition);
 	}
 }
 
@@ -73,7 +73,7 @@ public:
 			~ db.fromsSql(tables) ~ db.joinsSql(joins)
 			~ db.wheresSql(whereConditions, orWhereConditions)
 			~ db.ordersSql(orderConditions)
-			~ db.limitSql(limitCondition) ~ ";";
+			~ db.limitSql(limitCondition);
 	}
 }
 
@@ -93,7 +93,7 @@ public:
 			~ db.fromsSql(tables) ~ db.joinsSql(joins)
 			~ db.wheresSql(whereConditions, orWhereConditions)
 			~ db.ordersSql(orderConditions)
-			~ db.limitSql(limitCondition) ~ ";";
+			~ db.limitSql(limitCondition);
 	}
 }
 
@@ -115,7 +115,7 @@ public:
 	{
 		return "INSERT INTO " ~ db.processPlaceholder("?#", table)
 			~ " (" ~ db.fieldsSql(fieldsNames, [table: table]) ~ ") VALUES "
-			~ db.valuesSql(fieldsExpr, values_) ~ ";";
+			~ db.valuesSql(fieldsExpr, values_);
 	}
 }
 
@@ -133,7 +133,85 @@ public:
 	string asSql ()
 	{
 		return "INSERT INTO " ~ db.processPlaceholder("?#", table)
-			~ db.setsSql(sets) ~ ";";
+			~ db.setsSql(sets);
+	}
+}
+
+class MysqlUpdate: Update
+{
+public:
+@safe:
+
+	this (SqlDriver db, string table)
+	{
+		super(db, table);
+	}
+
+	const
+	string asSql ()
+	{
+		return "UPDATE " ~ db.processPlaceholder("?#", table)
+			~ db.setsSql(sets)
+			~ db.wheresSql(whereConditions, orWhereConditions)
+			~ db.ordersSql(orderConditions) ~ db.limitSql(limitCondition);
+	}
+}
+
+class MysqlUpdateRow: UpdateRow
+{
+public:
+@safe:
+
+	this (SqlDriver db, string table)
+	{
+		super(db, table);
+	}
+
+	const
+	string asSql ()
+	{
+		return "UPDATE " ~ db.processPlaceholder("?#", table)
+			~ db.setsSql(sets)
+			~ db.wheresSql(whereConditions, orWhereConditions)
+			~ db.ordersSql(orderConditions) ~ db.limitSql(limitCondition);
+	}
+}
+
+class MysqlDelete: Delete
+{
+public:
+@safe:
+
+	this (SqlDriver db)
+	{
+		super(db);
+	}
+	
+	const
+	string asSql ()
+	{
+		return "DELETE FROM " ~ db.processPlaceholder("?#", table)
+			~ db.wheresSql(whereConditions, orWhereConditions)
+			~ db.ordersSql(orderConditions) ~ db.limitSql(limitCondition);
+	}
+}
+
+class MysqlDeleteRow: DeleteRow
+{
+public:
+@safe:
+
+	this (SqlDriver db)
+	{
+		super(db);
+	}
+	
+	const
+	string asSql ()
+	{
+		return "DELETE FROM " ~ db.processPlaceholder("?#", table)
+			~ db.wheresSql(whereConditions, orWhereConditions)
+			~ db.ordersSql(orderConditions) ~ db.limitSql(limitCondition);
 	}
 }
 
@@ -156,7 +234,7 @@ public:
 			~ db.primaryKeySql(primaryKey_)
 			~ db.uniquesSql(unique)
 			~ db.constraintsSql(constraints) ~ ")"
-			~ db.optionsSql(options) ~ ";";
+			~ db.optionsSql(options);
 	}
 }
 
@@ -363,6 +441,26 @@ public:
 		return new MysqlCreateTable(this, table);
 	}
 	
+	MysqlUpdate update (string table)
+	{
+		return new MysqlUpdate(this, table);
+	}
+	
+	MysqlUpdateRow updateRow (string table)
+	{
+		return new MysqlUpdateRow(this, table);
+	}
+	
+	Delete delete_ ()
+	{
+		return new MysqlDelete(this);
+	}
+	
+	DeleteRow deleteRow ()
+	{
+		return new MysqlDeleteRow(this);
+	}
+	
 	@trusted const
 	string fieldsSql (in string[string] fields, in string[string] tables)
 	{
@@ -444,7 +542,7 @@ public:
 	}
 	
 	const
-	string limitSql (in TypeTuple!(uint, uint) limitCondition)
+	string limitSql (in Limit limitCondition)
 	{
 		return limit[1]
 			? (limit[0]
